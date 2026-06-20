@@ -49,8 +49,9 @@ suggested/default pricing leaves money on the table.
 
 | agent | survival_reward | % of oracle |
 |---|---:|---:|
-| **Oracle (ceiling)** | 1284.5 | 100% |
+| **Full-info oracle** (knows demand) | 1284.5 | 100% |
 | 4B trained (step 7) | 1142.9 | **89%** |
+| **Blind oracle** (must *learn* demand) | 996.3 | 78% |
 | 4B untrained (step 0) | 891.5 | 69% |
 | 2B baseline | _pending_ | |
 | GA best genome | _pending_ | |
@@ -59,3 +60,18 @@ RL took the 4B from **69% → 89%** of the Bayesian-optimal. The remaining ~11% 
 the agent survives as well as the oracle (days ≈13–14, 0 bankruptcies) but under-prices vs the
 optimal high-margin strategy — expected, since `survival_reward` weights days/survival heavily,
 so the policy prioritizes staying solvent over margin-maximizing.
+
+## Separating the hidden information (`oracle_blind.py`)
+
+The full-info oracle is *given* the demand model — an unfair advantage the LLM lacks. The **blind
+oracle** must **learn** demand (probe 2 prices, fit elasticity, exploit) → 996.3 (78%). Notably the
+**trained LLM (1143) beats it**: the blind oracle wastes turns probing and reaches only 10.4 days,
+so the LLM's learned policy is a **better online learner** than a naive explore-then-exploit
+heuristic. Caveat: the blind oracle is a *naive-learner reference*, not a tight info-matched ceiling
+(a smarter learner — Thompson sampling, cheaper probes — would score higher). Takeaway: the LLM
+**recovers most of the hidden-demand penalty** rather than relying on cheated information.
+
+**Prompt corrected (env v0.1.8, team `cheney/`):** the agent is now told the true objective
+(survival-first + bankruptcy penalty), that every action costs money (the compute drain), and that
+the reference price is only a starting point (not "good") — removing the prior misleading steer.
+Runs below this point use the corrected prompt; the 4B numbers above are on the old prompt.
