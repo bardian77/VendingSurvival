@@ -105,6 +105,15 @@ def _conditioning_line(i: int, mode: str) -> str:
     return "\n\n" + style
 
 
+_GENOME_GENES = ["price_aggression", "stock_buffer", "risk_tolerance"]
+
+
+def _genome_line(vec) -> str:
+    """Render an evolved genome (gene vector in [0,1]) into a per-agent instinct line."""
+    parts = ", ".join(f"{n}={float(v):.2f}" for n, v in zip(_GENOME_GENES, vec))
+    return "\n\nOperating instincts — " + parts + "."
+
+
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
@@ -122,9 +131,12 @@ def _coerce_int(value, name: str) -> int:
 
 def _coerce_float(value, name: str) -> float:
     try:
-        return float(value)
+        v = float(value)
     except (TypeError, ValueError):
         raise ValueError(f"'{name}' must be a number, got {value!r}")
+    if not math.isfinite(v):
+        raise ValueError(f"'{name}' must be a finite number (no NaN/Infinity), got {value!r}")
+    return v
 
 
 def _replace_nonfinite(obj):
@@ -622,6 +634,7 @@ def load_environment(
     compute_cost: float = 0.0,
     n_families: int = 1,
     family: int = -1,
+    genomes=None,
     **kwargs,
 ) -> vf.Environment:
     """Load the simplified (easy) Vending-Bench environment.
@@ -659,12 +672,16 @@ def load_environment(
         style_pool = OPERATING_STYLES
     rows = []
     for i in range(max(1, num_examples)):
-        style = style_pool[i % len(style_pool)] if conditioning_mode == "diverse" else style_pool[0]
+        if genomes:
+            line = _genome_line(genomes[i % len(genomes)])
+        else:
+            style = style_pool[i % len(style_pool)] if conditioning_mode == "diverse" else style_pool[0]
+            line = "\n\n" + style
         rows.append({
-            "question": USER_KICKOFF + "\n\n" + style,
+            "question": USER_KICKOFF + line,
             "answer": "",
             "info": {"seed": seed + i, "conditioning_mode": conditioning_mode,
-                     "n_families": n_families, "family": family, "operating_style": style},
+                     "n_families": n_families, "family": family, "operating_style": line.strip()},
         })
     dataset = Dataset.from_list(rows)
 
