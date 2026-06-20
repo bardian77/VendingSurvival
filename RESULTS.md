@@ -26,3 +26,36 @@ step 7 = trained. This is the **baseline** the GA is compared against.
 throughout** (econ is gentle for the 4B — survival doesn't bite; gain is from earning more).
 
 **Cost:** $6.19 · 55.9M tokens · 8 steps.
+
+## Oracle ceiling (Bayesian-optimal)
+
+The expected-profit-maximizing operator under the **known** demand model (optimal price per
+product, stock-to-capacity, collect cash daily, survive) — computed by `oracle.py`,
+turn-matched (40 turns) and paying the same `compute_cost=0.5`. Avg over 16 seeds:
+
+| metric | oracle |
+|---|---|
+| survival_reward | **1284.5** |
+| days_survived | 13.4 |
+| net_worth | 1231 |
+| units_sold | 172 |
+| bankrupt_rate | 0 |
+
+**Optimal prices:** Water $6.24, Soda $8.71, Chips $5.50, Candy $7.50, Coffee $7.72 — i.e. the
+optimum **prices high** (4–5× the ~$1.50 suggested price), exploiting inelastic demand. The
+suggested/default pricing leaves money on the table.
+
+## Agents as % of optimal
+
+| agent | survival_reward | % of oracle |
+|---|---:|---:|
+| **Oracle (ceiling)** | 1284.5 | 100% |
+| 4B trained (step 7) | 1142.9 | **89%** |
+| 4B untrained (step 0) | 891.5 | 69% |
+| 2B baseline | _pending_ | |
+| GA best genome | _pending_ | |
+
+RL took the 4B from **69% → 89%** of the Bayesian-optimal. The remaining ~11% is **pricing**:
+the agent survives as well as the oracle (days ≈13–14, 0 bankruptcies) but under-prices vs the
+optimal high-margin strategy — expected, since `survival_reward` weights days/survival heavily,
+so the policy prioritizes staying solvent over margin-maximizing.
