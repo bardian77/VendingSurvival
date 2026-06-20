@@ -1,0 +1,110 @@
+@import 'tailwindcss';
+
+/* ----------------------------------------------------------------------------
+   Vending Survival — Clean Editorial theme
+   Warm paper canvas, near-black ink, restrained accent, muted agent palette.
+   Tailwind v4 design tokens generate the color, font and spacing utilities.
+---------------------------------------------------------------------------- */
+@theme {
+  /* Type */
+  --font-display: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Surfaces — warm off-white paper */
+  --color-paper: #f4f1ea;
+  --color-paper-dim: #ebe7dc;
+  --color-surface: #fbf9f4;
+  --color-surface-raised: #ffffff;
+
+  /* Ink */
+  --color-ink: #1d1a16;
+  --color-ink-soft: #6e6657;
+  --color-ink-faint: #a79e8c;
+
+  /* Lines */
+  --color-line: #e3ddd0;
+  --color-line-strong: #d3cab8;
+
+  /* Accent — restrained terracotta */
+  --color-accent: #b5532c;
+  --color-accent-soft: #d98c66;
+  --color-accent-wash: #f0e3da;
+
+  /* Semantic */
+  --color-positive: #4a7256;
+  --color-negative: #b14a30;
+  --color-warning: #bd882d;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100svh;
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Soft paper grain — layered radial washes, no image asset */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle at 18% 10%, rgba(181, 83, 44, 0.04), transparent 40%),
+      radial-gradient(circle at 84% 82%, rgba(74, 114, 86, 0.035), transparent 42%);
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+/* Tabular figures — applied to every money / token number */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-in-right {
+    animation: none;
+  }
+}
