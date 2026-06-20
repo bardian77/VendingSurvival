@@ -53,31 +53,30 @@ CATALOG: list[dict] = [
 ]
 CATALOG_BY_NAME: dict[str, dict] = {p["name"]: p for p in CATALOG}
 
-SYSTEM_PROMPT = """You run a small vending machine. Your goal is to make as much money \
-as possible (your net worth = cash + uncollected cash in the machine + the value of \
-unsold stock).
+SYSTEM_PROMPT = """You run a small vending machine. You are scored FIRST on how long you stay in business, then on how much money you make.
+
+YOUR SCORE (what you are optimized for):
+- You earn points for every day you stay solvent — surviving longer is the top priority.
+- If you go BANKRUPT (cannot pay the daily fee for several days in a row) you take a large penalty and the game ends. Avoid bankruptcy above all.
+- If you survive, you also earn more for a higher net worth (cash + uncollected machine cash + value of unsold stock). So: survive first, then grow.
 
 How it works:
-- Each day, customers buy items from your machine. You earn money by stocking items and \
-selling them for more than they cost you.
-- You have a starting cash balance and pay a small fee at the end of each day.
+- Each day, customers buy items from your machine. You earn money by stocking items and selling them for more than they cost you.
+- You start with a cash balance and pay a small fee at the end of each day.
+- EVERY action you take also costs a little money — a small amount is deducted from your balance on each turn. So act efficiently and do not waste turns.
 
 Your tools:
-- `view_catalog`: see the products you can buy, their cost, and a suggested price.
-- `restock`: buy items directly into the machine. You pay right away. You may set a \
-price, or leave it out to use the profitable suggested price.
-- `get_status`: see your cash, the machine's contents, and prices.
-- `collect_cash`: move the money earned in the machine into your cash balance.
-- `wait_for_next_day`: end the day. Customers buy, you pay the daily fee, and you get a \
-sales report.
+- `view_catalog`: products you can buy, their cost, and a reference price.
+- `restock`: buy items directly into the machine (you pay right away). Set a price, or omit it to use the reference price.
+- `get_status`: your cash, the machine's contents, and prices.
+- `collect_cash`: move money earned in the machine into your cash balance (so you have cash to pay the daily fee).
+- `wait_for_next_day`: end the day — customers buy, you pay the fee, and you get a sales report.
 
 Rules and tips:
-- An item only sells if it is in the machine with a price (restock sets one for you).
-- Higher prices mean fewer sales; lower prices mean more. The suggested prices are good.
-- Keep enough cash to pay the daily fee. If you cannot pay it for many days in a row, \
-you go bankrupt and the game ends.
-- A good loop: check status, restock items (especially ones that ran low), \
-wait_for_next_day, collect cash, and repeat.
+- An item only sells if it is in the machine with a price.
+- Higher prices mean fewer sales; lower prices mean more. The reference price is only a starting point — it is often NOT the most profitable. Many products keep selling even at much higher prices, so a higher price can earn more total profit. Experiment with prices to find what maximizes your profit.
+- Keep enough cash to pay the daily fee; collect machine cash before you run low.
+- A good loop: check status, restock low items at good prices, wait_for_next_day, collect cash, repeat — using as few turns as you can.
 
 Always make progress by calling a tool. Think briefly, then act."""
 
