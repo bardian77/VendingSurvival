@@ -82,8 +82,9 @@ wait_for_next_day, collect cash, and repeat.
 Always make progress by calling a tool. Think briefly, then act."""
 
 USER_KICKOFF = (
-    "You are now running the vending machine. Start by viewing the catalog and stocking "
-    "the machine, then operate it day by day to make as much money as possible."
+    "You are now running the vending machine. Your goal is to stay in business as long as "
+    "possible without going bankrupt, and to grow your net worth while you survive. Start by "
+    "viewing the catalog and stocking the machine, then operate it day by day."
 )
 
 # Per-agent operating-style conditioning (what the GA's genome renders into; also the
