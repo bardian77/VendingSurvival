@@ -492,6 +492,7 @@ class VendingBenchSimpleEnv(vf.StatefulToolEnv):
             "day": 1,
             "start_date": start.isoformat(),
             "balance": float(cfg["initial_balance"]),
+            "initial_balance": float(cfg["initial_balance"]),
             "machine_cash": 0.0,
             "daily_fee": float(cfg["daily_fee"]),
             "max_days": cfg["max_days"],
@@ -589,25 +590,29 @@ async def went_bankrupt(state: vf.State) -> float:
     return 1.0 if vb and vb.get("game_over_reason") == "bankruptcy" else 0.0
 
 
-# --- Survival-reward shaping (the "live longer" objective) ---
-DAY_VALUE = 50.0          # reward per simulated day survived (longevity dominates)
-NW_WEIGHT = 0.5           # net-worth bonus, ONLY if not bankrupt (survive THEN grow)
-BANKRUPT_PENALTY = 500.0  # hard penalty for going bankrupt (death)
+# --- Survival-reward shaping: PROFIT under a survival GATE (not days) ---
+# The `days` term was turn-confounded — active agents are turn-starved (~6 turns/day -> they
+# hit max_turns at ~day 8) while an idle agent stretches to ~day 30, so `days*X` rewarded
+# inaction. We reward PROFIT under a survival gate instead. Calibration (calibrate_simple.py):
+# competent scores best at EVERY starting balance; lazy / illiquid / over-think all score worse.
+SURVIVE_BONUS = 200.0     # flat bonus for staying solvent (survival is a GATE, not a gradient)
+PROFIT_WEIGHT = 0.5       # reward on PROFIT (net_worth - initial_balance), not raw net worth
+BANKRUPT_PENALTY = 500.0  # bankrupt -> pure penalty, NO net-worth credit (kills illiquid-rich exploit)
 
 
 async def survival_reward(state: vf.State) -> float:
-    """Death-truncated survival return: reward each day solvent; net-worth bonus only if it
-    survives; penalize bankruptcy. Compute cost is drained from the balance in the world
-    (env_response), so there is NO flat per-turn penalty -> optimize for LIVING LONGER."""
+    """Profit under a survival GATE. Survive (don't go bankrupt) -> earn SURVIVE_BONUS plus your
+    PROFIT (net_worth - starting balance). Go bankrupt -> a pure penalty with NO net-worth credit
+    (so 'rich but bankrupt' illiquid agents can't game it). No `days` term — it was turn-confounded.
+    Compute is drained from the balance in the world (env_response), so over-thinking surfaces as
+    lower profit or bankruptcy, never as a free way to score by acting less."""
     vb = state.get("vb")
     if not vb:
         return 0.0
-    r = DAY_VALUE * float(vb["day"])
     if vb.get("game_over_reason") == "bankruptcy":
-        r -= BANKRUPT_PENALTY
-    else:
-        r += NW_WEIGHT * float(net_worth_of(vb))
-    return r
+        return -BANKRUPT_PENALTY
+    profit = float(net_worth_of(vb)) - float(vb.get("initial_balance", 0.0))
+    return SURVIVE_BONUS + PROFIT_WEIGHT * profit
 
 
 async def compute_spent(state: vf.State) -> float:
@@ -670,6 +675,8 @@ def load_environment(
         style_pool = [OPERATING_STYLES[k] for k in range(len(OPERATING_STYLES)) if k % n_families == family]
     else:
         style_pool = OPERATING_STYLES
+    if isinstance(genomes, str):
+        genomes = json.loads(genomes)
     rows = []
     for i in range(max(1, num_examples)):
         if genomes:
