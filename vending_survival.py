@@ -579,13 +579,16 @@ class VendingBenchSimpleEnv(vf.StatefulToolEnv):
             slot = int(info.get("slot", 0))
             ps = _coevo_read_pool(coevo_dir)
             if ps and ps.get("pool"):
-                pool = ps["pool"]
-                genome = pool[slot % len(pool)]
                 state["vb"]["coevo_dir"] = coevo_dir
                 state["vb"]["coevo_slot"] = slot
                 state["vb"]["coevo_gen"] = int(ps.get("gen", 0))
-                state["vb"]["coevo_genome"] = genome
-                _inject_genome_into_prompt(state, genome)
+                if info.get("baseline"):
+                    state["vb"]["coevo_baseline"] = True
+                else:
+                    pool = ps["pool"]
+                    genome = pool[slot % len(pool)]
+                    state["vb"]["coevo_genome"] = genome
+                    _inject_genome_into_prompt(state, genome)
 
     def update_tool_args(
         self,
@@ -708,6 +711,7 @@ async def coevo_fitness_log(state: vf.State) -> float:
             "slot": vb.get("coevo_slot"),
             "reward": _survival_reward_value(vb),
             "bankrupt": 1 if vb.get("game_over_reason") == "bankruptcy" else 0,
+            "baseline": bool(vb.get("coevo_baseline")),
         })
     return 0.0
 
@@ -739,6 +743,7 @@ def load_environment(
     genomes=None,
     coevo_dir: str | None = None,
     pop_size: int = 16,
+    include_baseline: bool = False,
     **kwargs,
 ) -> vf.Environment:
     """Load the simplified (easy) Vending-Bench environment.
@@ -787,6 +792,17 @@ def load_environment(
                 "question": USER_KICKOFF,
                 "answer": "",
                 "info": {"seed": seed + i, "slot": i, "conditioning_mode": "coevo"},
+            })
+        if include_baseline:
+            rows.append({
+                "question": USER_KICKOFF,
+                "answer": "",
+                "info": {
+                    "seed": seed + pop_size,
+                    "slot": pop_size,
+                    "conditioning_mode": "baseline",
+                    "baseline": True,
+                },
             })
     else:
         for i in range(max(1, num_examples)):
