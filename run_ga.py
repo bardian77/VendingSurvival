@@ -36,7 +36,7 @@ max_inflight_rollouts = 16
 max_tokens = 1024
 enable_thinking = false
 [[env]]
-id = "chenyusu/vending-survival"
+id = "cheney/vending-survival"
 args = {{ num_examples = 16, genomes = "{gjson}", initial_balance = 200, daily_fee = 5, demand_scale = 1.0, compute_cost = 0.5, bankruptcy_days = 3, max_days = 30, max_turns = 30 }}
 '''
     p = f"/tmp/ga_gen{gen}.toml"; open(p, "w").write(cfg); return p
