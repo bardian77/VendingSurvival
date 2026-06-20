@@ -1,0 +1,31 @@
+# In-run genome co-evolution for prime-rl (needs 2 GPUs: 1 inference + 1 trainer).
+# Run the GA controller as a sidecar in the SAME session, then launch RL:
+#   COEVO_DIR=/root/coevo COEVO_POP=16 COEVO_MIN_SAMPLES=4 python coevo.py &   # evolves pool.json
+#   WANDB_MODE=disabled uv run rl @ vend_coevo.toml                            # trains + logs fitness
+# batch_size/group_size = 64/4 = 16 examples x 4 rollouts = all 16 pool slots scored per step
+# => one GA generation per RL step (genome + LoRA weights co-adapt in one run).
+max_steps = 20
+seq_len = 16384
+[ckpt]
+[model]
+name = "Qwen/Qwen3.5-2B"
+[trainer.model]
+impl = "auto"
+[trainer.model.ac]
+freq = 1
+[trainer.model.lora]
+rank = 32
+alpha = 64
+[trainer.optim]
+lr = 1e-5
+[orchestrator]
+batch_size = 64
+group_size = 4
+[orchestrator.train.sampling]
+max_completion_tokens = 1024
+[[orchestrator.train.env]]
+id = "vending-survival"
+args = { coevo_dir = "/root/coevo", pop_size = 16, max_turns = 40, initial_balance = 200, daily_fee = 5, demand_scale = 1.0, compute_cost = 0.5, bankruptcy_days = 3, max_days = 30 }
+[orchestrator.renderer]
+name = "qwen3"   # tool-capable renderer; the "default" fallback does NOT support tool-calling
+[inference]
