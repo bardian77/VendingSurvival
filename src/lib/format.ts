@@ -26,6 +26,13 @@ export function formatSignedMoney(value: number): string {
   return `${sign}${USD.format(Math.abs(value))}`
 }
 
+/** `$66,686` / `−$1,204` — whole dollars, grouped, no cents (headline figures). */
+export function formatMoneyWhole(value: number): string {
+  if (!Number.isFinite(value)) return '$0'
+  const sign = value < 0 ? MINUS : ''
+  return `${sign}$${Math.round(Math.abs(value)).toLocaleString('en-US')}`
+}
+
 /** `$1.8k` / `$63k` / `$420` — compact dollars for dense axes and stats. */
 export function formatMoneyCompact(value: number): string {
   if (!Number.isFinite(value)) return '$0'

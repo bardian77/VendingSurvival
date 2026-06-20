@@ -70,7 +70,10 @@ const NAMES = ['Lean Operator', 'Chain-of-Thought', 'Over-Thinker', 'Zero-Shot']
 const TOKENS = [900, 9000, 34000, 350] // per-agent thinking budget
 
 wss.on('connection', (ws) => {
-  const balances = NAMES.map(() => 500)
+  const cash = NAMES.map(() => 500)
+  const machineCash = NAMES.map(() => 0)
+  const inventoryValue = NAMES.map(() => 0)
+  const unpaid = NAMES.map(() => 0)
   const dead = NAMES.map(() => null)
   let day = 0
 
@@ -78,29 +81,36 @@ wss.on('connection', (ws) => {
     const agents = NAMES.map((name, i) => {
       const alive = dead[i] === null
       const tokens = alive ? Math.round(TOKENS[i] * (0.9 + Math.random() * 0.2)) : 0
-      const computeCost = +(tokens * 1.2e-5 * 42).toFixed(2) // blended $/token × multiplier
-      const profit = alive ? +(8 + Math.random() * 10).toFixed(2) : 0
-      const consumptionCost = alive ? 2 : 0
+      const computeCost = +(tokens * 1.2e-5 * 200).toFixed(2) // blended $/token × overlay multiplier
+      const revenue = alive ? +(60 + Math.random() * 40).toFixed(2) : 0
+      const costOfGoods = +(revenue * 0.4).toFixed(2)
+      const profit = +(revenue - costOfGoods).toFixed(2)
+      const fee = 2
       if (alive) {
-        balances[i] += profit - consumptionCost - computeCost
-        if (balances[i] <= 0) { balances[i] = 0; dead[i] = day }
+        cash[i] += profit - computeCost          // earn, minus the compute drain
+        if (cash[i] >= fee) { cash[i] -= fee; unpaid[i] = 0 } else { unpaid[i] += 1 }
+        if (unpaid[i] >= 10) dead[i] = day        // bankruptcy: 10 unpaid-fee days
+        inventoryValue[i] = 120                    // pretend a steady stocked machine
       }
       return {
         id: i + 1,
-        balance: +balances[i].toFixed(2),
-        profit,
+        balance: +cash[i].toFixed(2),
+        machineCash: machineCash[i],
+        inventoryValue: inventoryValue[i],
+        profit, revenue, costOfGoods,
         computeCost,
-        consumptionCost,
+        consumptionCost: fee,
         tokensUsed: tokens,
+        unpaidDays: unpaid[i],
         isAlive: dead[i] === null,
         inventory: [],
-        decisionText: alive ? 'Adjusted prices and restocked.' : 'Out of service.',
+        decisionText: alive ? 'Priced, restocked, and collected cash.' : 'Out of service.',
         name, // optional, but nice
       }
     })
 
-    ws.send(JSON.stringify({ day, agents, isComplete: day >= 300 }))
-    if (day >= 300) clearInterval(timer)
+    ws.send(JSON.stringify({ day, agents, isComplete: day >= 365 }))
+    if (day >= 365) clearInterval(timer)
     day += 1
   }, 650)
 
@@ -144,14 +154,16 @@ The UI owns all of this — sending it is optional:
 
 | You can omit         | UI does instead                                  |
 |----------------------|--------------------------------------------------|
+| `netWorth`           | `balance + machineCash + inventoryValue`         |
 | `name`               | `Agent {id}`                                     |
 | `color`              | assigns from the palette by id                   |
+| `netWorthDelta`      | `netWorth − previous netWorth`                   |
 | `balanceDelta`       | `balance − previous balance`                     |
 | `netChange`          | `profit − consumption − compute`                 |
-| `balanceHistory`     | accumulates across incoming ticks                |
+| `netWorthHistory` / `balanceHistory` | accumulated across incoming ticks    |
 | `deathDay`           | stamps the first day `isAlive` is false          |
 | `aliveCount`         | counts living agents                             |
-| `leaderId`           | highest balance                                  |
+| `leaderId`           | highest net worth                                |
 | `totalComputeSpent`  | running sum of every agent's `computeCost`       |
 
 Send the 9 core fields, get the full dashboard.

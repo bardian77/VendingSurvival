@@ -1,30 +1,32 @@
 /**
- * The hero: a live balance-over-time race for all 16 agents, rendered on Canvas
- * 2D for smooth updates and full control over the editorial styling. Hovering a
- * line highlights its agent everywhere; clicking opens the detail drawer. Dead
- * agents' lines stop at their death day with a small cross.
+ * The hero: a live net-worth race for all 16 agents, rendered on Canvas 2D for
+ * smooth updates and full control over the editorial styling. Hovering a line
+ * highlights its agent everywhere; clicking opens the detail drawer. Bankrupt
+ * agents' lines drop and stop at their death day with a small cross.
  */
 import { useCallback, useEffect, useRef } from 'react'
+import type { AgentDayState } from '../types'
 import { useCurrentTick } from '../store/useSimStore'
 import { useUiStore } from '../store/useUiStore'
-import { MAX_DAYS, START_BALANCE } from '../sim/constants'
+import { BENCH } from '../sim/benchConfig'
 import { formatMoneyCompact } from '../lib/format'
-import type { AgentDayState } from '../types'
 
-const PAD = { left: 52, right: 18, top: 18, bottom: 28 }
+const MAX_DAYS: number = BENCH.maxDays
+const START_BALANCE: number = BENCH.initialBalance
+
+const PAD = { left: 56, right: 18, top: 18, bottom: 28 }
 const INK_FAINT = '#a79e8c'
 const LINE = '#e3ddd0'
 
 interface DrawCache {
   agents: AgentDayState[]
   plot: { left: number; right: number; top: number; bottom: number }
+  yMin: number
   yMax: number
 }
 
-function niceCeil(value: number): number {
-  const step = 250
-  return Math.max(1000, Math.ceil((value * 1.12) / step) * step)
-}
+const ceilTo = (v: number, step: number) => Math.ceil(v / step) * step
+const floorTo = (v: number, step: number) => Math.floor(v / step) * step
 
 export function RaceChart() {
   const tick = useCurrentTick()
@@ -62,21 +64,26 @@ export function RaceChart() {
     const plotW = right - left
     const plotH = bottom - top
 
-    const maxVal = agents.reduce(
-      (m, a) => Math.max(m, a.balanceHistory.length ? Math.max(...a.balanceHistory) : 0),
-      START_BALANCE,
-    )
-    const yMax = niceCeil(maxVal)
+    let maxVal = START_BALANCE
+    let minVal = 0
+    for (const a of agents) {
+      for (const v of a.netWorthHistory) {
+        if (v > maxVal) maxVal = v
+        if (v < minVal) minVal = v
+      }
+    }
+    const yMax = Math.max(2000, ceilTo(maxVal * 1.08, 2500))
+    const yMin = Math.min(0, floorTo(minVal * 1.15, 1000))
 
     const xAt = (day: number) => left + (day / MAX_DAYS) * plotW
-    const yAt = (val: number) => top + (1 - val / yMax) * plotH
+    const yAt = (val: number) => top + (1 - (val - yMin) / (yMax - yMin)) * plotH
 
     // Horizontal grid + y labels
     ctx.font = '11px "JetBrains Mono", monospace'
     ctx.textBaseline = 'middle'
-    const ySteps = 4
+    const ySteps = 5
     for (let i = 0; i <= ySteps; i += 1) {
-      const val = (yMax / ySteps) * i
+      const val = yMin + ((yMax - yMin) / ySteps) * i
       const y = yAt(val)
       ctx.strokeStyle = LINE
       ctx.lineWidth = 1
@@ -89,8 +96,18 @@ export function RaceChart() {
       ctx.fillText(formatMoneyCompact(val), left - 8, y)
     }
 
-    // Starting-balance reference
-    ctx.strokeStyle = 'rgba(181,83,44,0.35)'
+    // Zero (bankruptcy) line, emphasized when the range dips negative
+    if (yMin < 0) {
+      ctx.strokeStyle = 'rgba(177,74,48,0.4)'
+      ctx.lineWidth = 1.2
+      ctx.beginPath()
+      ctx.moveTo(left, yAt(0))
+      ctx.lineTo(right, yAt(0))
+      ctx.stroke()
+    }
+
+    // Starting net-worth reference
+    ctx.strokeStyle = 'rgba(181,83,44,0.3)'
     ctx.setLineDash([3, 4])
     ctx.lineWidth = 1
     ctx.beginPath()
@@ -113,7 +130,7 @@ export function RaceChart() {
       : agents
 
     for (const agent of ordered) {
-      const history = agent.balanceHistory
+      const history = agent.netWorthHistory
       if (history.length < 2) continue
       const dimmed = highlightId != null && agent.id !== highlightId
       ctx.strokeStyle = agent.color
@@ -149,7 +166,7 @@ export function RaceChart() {
     }
     ctx.globalAlpha = 1
 
-    cacheRef.current = { agents, plot: { left, right, top, bottom }, yMax }
+    cacheRef.current = { agents, plot: { left, right, top, bottom }, yMin, yMax }
   }, [tick])
 
   useEffect(() => {
@@ -171,17 +188,17 @@ export function RaceChart() {
     const rect = canvas.getBoundingClientRect()
     const mx = event.clientX - rect.left
     const my = event.clientY - rect.top
-    const { plot, yMax, agents } = cache
+    const { plot, yMin, yMax, agents } = cache
     const plotW = plot.right - plot.left
     const plotH = plot.bottom - plot.top
     const day = Math.round(((mx - plot.left) / plotW) * MAX_DAYS)
 
     let nearest: number | null = null
-    let best = 22 // px threshold
+    let best = 22
     for (const agent of agents) {
-      const val = agent.balanceHistory[Math.min(day, agent.balanceHistory.length - 1)]
+      const val = agent.netWorthHistory[Math.min(day, agent.netWorthHistory.length - 1)]
       if (val === undefined) continue
-      const y = plot.top + (1 - val / yMax) * plotH
+      const y = plot.top + (1 - (val - yMin) / (yMax - yMin)) * plotH
       const dist = Math.abs(y - my)
       if (dist < best) {
         best = dist
@@ -208,7 +225,7 @@ export function RaceChart() {
         onMouseMove={handleMove}
         onClick={handleClick}
         role="img"
-        aria-label="Balance over time for all agents"
+        aria-label="Net worth over time for all agents"
       />
     </div>
   )

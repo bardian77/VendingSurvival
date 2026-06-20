@@ -5,8 +5,10 @@
  * on top for keyboard + drag accessibility.
  */
 import { useSimStore } from '../store/useSimStore'
-import { MAX_DAYS } from '../sim/constants'
+import { BENCH } from '../sim/benchConfig'
 import { cx } from '../lib/cx'
+
+const MAX_DAYS = BENCH.maxDays
 
 export function Timeline() {
   const viewDay = useSimStore((s) => s.viewDay)

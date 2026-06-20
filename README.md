@@ -6,12 +6,15 @@ deducted from its balance. Think too much and compute bankrupts you; think too
 little and bad decisions do. The dashboard visualizes the race to find the
 configuration that thinks *exactly* as much as a decision is worth.
 
-Built on the mechanics of the open-source [Vending-Bench](https://andonlabs.com/evals/vending-bench)
-benchmark: $500 starting cash, a $2/day location fee, a ~300-day run.
+Faithful to the team's `vending_bench.py`: $500 starting cash, a $2/day fee, a
+365-day run, a real 14-product catalog with price elasticity, a 3-day delivery
+pipeline (order → storage → machine → collect cash), and the benchmark's score —
+**net worth** = cash + uncollected machine cash + wholesale inventory value.
+Bankruptcy hits after 10 consecutive days unable to pay the fee.
 
-```
-balance(today) = balance(yesterday) + profit − location fee − compute cost
-```
+The project's overlay on top: **compute cost** drains an agent's cash every day,
+so over-thinkers bankrupt on tokens and under-thinkers on incoherent operations,
+while the sweet-spot agents sustain coherence for the full year.
 
 ## Run it
 
@@ -30,14 +33,16 @@ backend or API keys needed. It is demo-ready out of the box.
 
 ## What you see
 
-- **Balance race** — a live chart of all 16 agents; lines fan out from $500,
-  dead agents stop at their bankruptcy day. Hover to highlight, click to inspect.
-- **Agent grid** — per-agent balance, delta, sparkline, a **token-burn meter**
-  (the cost of thinking), and the decision it just made.
-- **Standings & Graveyard** — survivors ranked by balance; the bankrupt sorted by
-  when they died.
-- **Detail drawer** — the survival-formula ledger, inventory, token spend, and
-  the system prompt that defines each agent's reasoning.
+- **Net worth race** — a live chart of all 16 agents; survivors climb over the
+  year while the bankrupt drop below zero, ×-marked at their death day. Hover to
+  highlight, click to inspect.
+- **Agent grid** — per-agent net worth, delta, sparkline, cash + bankruptcy-risk
+  cue, a **token-burn meter** (the cost of thinking), and the latest decision.
+- **Standings & Graveyard** — survivors ranked by net worth; the bankrupt tagged
+  with their cause of death (compute-starved / liquidity / incoherent).
+- **Detail drawer** — the net-worth breakdown, the cash-flow ledger, three
+  history graphs (profit / compute+tokens / COGS), the supply pipeline (machine,
+  storage, pending deliveries), and a post-mortem for the bankrupt.
 - **DVR controls** — play / pause, 0.5×–8× speed, and a scrubber to replay any day.
 
 In the default run, the **Lean Operator** (cheap model, decisive) wins, all three

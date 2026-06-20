@@ -8,6 +8,7 @@ import { RaceChart } from './components/RaceChart'
 import { AgentGrid } from './components/AgentGrid'
 import { Leaderboard } from './components/Leaderboard'
 import { Graveyard } from './components/Graveyard'
+import { EvolutionPanel } from './components/EvolutionPanel'
 import { AgentDetail } from './components/AgentDetail'
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
 
         <section className="rounded-xl border border-line bg-surface p-4">
           <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="font-display text-lg text-ink">Balance race</h2>
+            <h2 className="font-display text-lg text-ink">Net worth race</h2>
             <span className="text-[11px] uppercase tracking-[0.14em] text-ink-faint">
               hover a line, click to inspect
             </span>
@@ -46,6 +47,8 @@ export default function App() {
             <Graveyard />
           </div>
         </div>
+
+        <EvolutionPanel />
       </div>
 
       <footer className="mt-8 border-t border-line pt-4 text-xs text-ink-faint">

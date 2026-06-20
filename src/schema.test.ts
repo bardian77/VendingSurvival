@@ -101,19 +101,22 @@ describe('normalizeTick — defaults and fallbacks', () => {
     expect(tick.leaderId).toBe(2)
   })
 
-  test('tolerates an unknown inventory category', () => {
+  test('tolerates an unknown inventory size and derives net worth', () => {
     const tick = normalizeTick({
       day: 0,
       agents: [
         {
           id: 1,
           balance: 5,
-          inventory: [{ sku: 'COKE', quantity: 4, price: 2.4, wholesale: 1.2, category: 'mystery' }],
+          machineCash: 3,
+          inventory: [{ sku: 'COKE', quantity: 4, price: 2.4, wholesale: 1.2, size: 'mystery' }],
         },
       ],
     })
-    expect(tick.agents[0].inventory[0].category).toBe('snack')
+    expect(tick.agents[0].inventory[0].size).toBe('small')
     expect(tick.agents[0].inventory[0].name).toBe('COKE')
+    // net worth = balance(5) + machineCash(3) + inventoryValue(4 × 1.2 = 4.8)
+    expect(tick.agents[0].netWorth).toBeCloseTo(12.8, 2)
   })
 })
 

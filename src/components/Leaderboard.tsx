@@ -1,7 +1,7 @@
-/** Living agents ranked by balance. Rows cross-highlight with the chart/grid. */
+/** Living agents ranked by net worth. Rows cross-highlight with the chart/grid. */
 import { useCurrentTick } from '../store/useSimStore'
 import { useUiStore } from '../store/useUiStore'
-import { formatMoney, formatSignedMoney } from '../lib/format'
+import { formatMoneyCompact, formatSignedMoney } from '../lib/format'
 import { cx } from '../lib/cx'
 import type { AgentDayState } from '../types'
 
@@ -9,7 +9,7 @@ function Row({ agent, rank }: { agent: AgentDayState; rank: number }) {
   const setHighlight = useUiStore((s) => s.setHighlight)
   const setSelected = useUiStore((s) => s.setSelected)
   const highlighted = useUiStore((s) => s.highlightId === agent.id)
-  const up = agent.balanceDelta >= 0
+  const up = agent.netWorthDelta >= 0
 
   return (
     <button
@@ -25,9 +25,9 @@ function Row({ agent, rank }: { agent: AgentDayState; rank: number }) {
       <span className="tnum w-4 shrink-0 font-mono text-xs text-ink-faint">{rank}</span>
       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: agent.color }} />
       <span className="min-w-0 flex-1 truncate text-sm text-ink">{agent.name}</span>
-      <span className="tnum shrink-0 font-mono text-[13px] text-ink">{formatMoney(agent.balance)}</span>
+      <span className="tnum shrink-0 font-mono text-[13px] text-ink">{formatMoneyCompact(agent.netWorth)}</span>
       <span className={cx('tnum w-14 shrink-0 text-right font-mono text-[11px]', up ? 'text-positive' : 'text-negative')}>
-        {formatSignedMoney(agent.balanceDelta)}
+        {formatSignedMoney(agent.netWorthDelta)}
       </span>
     </button>
   )
@@ -37,7 +37,7 @@ export function Leaderboard() {
   const tick = useCurrentTick()
   if (!tick) return null
 
-  const alive = tick.agents.filter((a) => a.isAlive).sort((a, b) => b.balance - a.balance)
+  const alive = tick.agents.filter((a) => a.isAlive).sort((a, b) => b.netWorth - a.netWorth)
 
   return (
     <section className="rounded-xl border border-line bg-surface p-3">

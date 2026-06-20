@@ -4,7 +4,7 @@
  * mixed). Raw cost is amplified by COMPUTE_MULTIPLIER so it bites over a run.
  */
 import type { ModelTier } from '../types'
-import { COMPUTE_MULTIPLIER } from './constants'
+import { COMPUTE_MULTIPLIER } from './overlay'
 
 /** Blended dollars per token by model tier. */
 export const TOKEN_RATES: Record<ModelTier, number> = {

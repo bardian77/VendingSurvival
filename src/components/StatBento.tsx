@@ -6,7 +6,9 @@
 import { Lightning, Skull, Trophy, Pulse } from '@phosphor-icons/react'
 import { useCurrentTick, useSimStore } from '../store/useSimStore'
 import { AGENT_COUNT } from '../sim/agents'
-import { MAX_DAYS } from '../sim/constants'
+import { BENCH } from '../sim/benchConfig'
+
+const MAX_DAYS = BENCH.maxDays
 import { formatDay, formatMoney, formatMoneyCompact } from '../lib/format'
 import type { ReactNode } from 'react'
 
@@ -65,9 +67,9 @@ export function StatBento() {
         hint={`${deaths} bankrupt`}
       />
       <Cell
-        label="Leader"
+        label="Leader · net worth"
         icon={<Trophy size={12} weight="fill" />}
-        value={<span style={{ color: leader?.color }}>{leader ? formatMoneyCompact(leader.balance) : 'n/a'}</span>}
+        value={<span style={{ color: leader?.color }}>{leader ? formatMoneyCompact(leader.netWorth) : 'n/a'}</span>}
         hint={leader?.name}
       />
       <Cell
@@ -78,10 +80,10 @@ export function StatBento() {
         accent
       />
       <Cell
-        label="Deaths"
+        label="Bankrupt"
         icon={<Skull size={12} weight="fill" />}
         value={deaths}
-        hint="balance hit zero"
+        hint="could not pay the fee"
       />
     </div>
   )

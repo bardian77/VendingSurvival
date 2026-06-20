@@ -2,14 +2,21 @@
 import { Skull } from '@phosphor-icons/react'
 import { useCurrentTick } from '../store/useSimStore'
 import { useUiStore } from '../store/useUiStore'
-import { MODEL_LABEL } from '../sim/pricing'
+import { causeOfDeath, type DeathCauseKey } from '../lib/causeOfDeath'
 import { cx } from '../lib/cx'
 import type { AgentDayState } from '../types'
+
+const CAUSE_TONE: Record<DeathCauseKey, string> = {
+  compute: 'text-accent',
+  liquidity: 'text-warning',
+  incoherence: 'text-negative',
+}
 
 function DeadRow({ agent }: { agent: AgentDayState }) {
   const setHighlight = useUiStore((s) => s.setHighlight)
   const setSelected = useUiStore((s) => s.setSelected)
   const highlighted = useUiStore((s) => s.highlightId === agent.id)
+  const cause = causeOfDeath(agent)
 
   return (
     <button
@@ -18,18 +25,16 @@ function DeadRow({ agent }: { agent: AgentDayState }) {
       onMouseLeave={() => setHighlight(null)}
       onClick={() => setSelected(agent.id)}
       className={cx(
-        'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-ink-soft transition-colors',
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-ink-soft transition-colors',
         highlighted ? 'bg-paper-dim' : 'hover:bg-paper-dim/60',
       )}
     >
       <span className="h-2.5 w-2.5 shrink-0 rounded-full opacity-50" style={{ backgroundColor: agent.color }} />
       <span className="min-w-0 flex-1 truncate text-sm line-through decoration-ink-faint/60">{agent.name}</span>
-      {agent.model && (
-        <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-wide text-ink-faint">
-          {MODEL_LABEL[agent.model]}
-        </span>
-      )}
-      <span className="tnum shrink-0 font-mono text-xs text-ink-faint">day {agent.deathDay}</span>
+      <span className={cx('shrink-0 text-[10px] font-medium uppercase tracking-wide', CAUSE_TONE[cause.key])}>
+        {cause.label}
+      </span>
+      <span className="tnum shrink-0 font-mono text-xs text-ink-faint">d{agent.deathDay}</span>
     </button>
   )
 }

@@ -1,118 +1,110 @@
 /**
- * The mock backend. `runSimulation(seed)` plays the whole ~300-day run for all
- * 16 agents deterministically and returns canonical `SimulationTick`s. Each tick
- * is an independent immutable snapshot (fresh inventory + history arrays), safe
- * to hand straight to React. MockSource later emits these one day at a time.
+ * The mock backend, re-based on the real Vending-Bench economy. `runSimulation`
+ * plays the whole 365-day run for all 16 agents deterministically and returns
+ * canonical `SimulationTick`s (each an independent immutable snapshot).
+ *
+ * Faithful to `vending_bench.py`: net worth = cash + uncollected machine cash +
+ * wholesale inventory value; orders are paid up front and arrive after a delay;
+ * sales accrue as machine cash until collected; bankruptcy after N consecutive
+ * unpaid-fee days. Project overlay: compute cost drains liquid cash each day, so
+ * over-thinkers bankrupt fast even while holding net worth.
  */
-import type { AgentDayState, InventoryItem, SimulationTick } from '../types'
+import type { AgentDayState, InventoryItem, PendingDelivery, SimulationTick, StorageItem } from '../types'
 import { AGENTS, type AgentConfig } from './agents'
-import { CATALOG } from './catalog'
+import { BENCH } from './benchConfig'
+import { CATALOG_BY_NAME, bestAssortment } from './catalog'
 import { createRng, type Rng } from './rng'
-import {
-  DAILY_FEE,
-  DEMAND_SCALE,
-  LOW_QUALITY_FLOOR,
-  LOW_QUALITY_PENALTY,
-  MAX_DAYS,
-  MISPRICE_STRENGTH,
-  OPERATING_WASTE,
-  SLOT_CAPACITY,
-  START_BALANCE,
-} from './constants'
 import { computeCostFor } from './pricing'
-import { dayOfWeekFactor, priceResponse, qualityFor, seasonalFactor } from './demand'
-import {
-  activeEvent,
-  eventMultiplier,
-  generateEvents,
-  toGlobalEvent,
-  type ScheduledEvent,
-} from './events'
-import { makeDecision, type DecisionAction, type DecisionContext } from './decisions'
+import { EXEC_BASE, EXEC_Q, INCOHERENCE_SCALE } from './overlay'
+import { qualityFor, dateForDay } from './demand'
+import { runDailySales } from './sales'
+import { runPolicy } from './policy'
+import { activeEvent, eventMultiplier, generateEvents, toGlobalEvent, type ScheduledEvent } from './events'
+import { makeDecision, type DecisionContext } from './decisions'
+import type { AgentRuntime } from './runtime'
 
 const DEFAULT_SEED = 17
 
-interface SlotState {
-  quantity: number
-  /** Multiplicative price error vs the optimum (0 = optimally priced). */
-  priceError: number
-  /** This slot's intrinsic misjudgment direction — the error a low-quality
-   *  agent settles toward and never escapes. */
-  misprice: number
-  price: number
-}
-
-interface AgentRuntime {
-  config: AgentConfig
-  balance: number
-  alive: boolean
-  deathDay: number | null
-  slots: SlotState[]
-  history: number[]
-}
-
 const round2 = (n: number): number => Math.round(n * 100) / 100
-const clampError = (e: number): number => Math.max(-0.45, Math.min(0.8, e))
 const priceLabel = (price: number): string => `$${price.toFixed(2)}`
 
-function initRuntime(config: AgentConfig, rng: Rng): AgentRuntime {
-  const slots: SlotState[] = CATALOG.map((item) => {
-    const misprice = rng.normal(0, 1)
-    const priceError = config.priceBias + misprice * 0.15
-    return {
-      quantity: rng.int(8, 14),
-      priceError,
-      misprice,
-      price: round2(item.optimalPrice * (1 + clampError(priceError))),
-    }
-  })
-  return {
-    config,
-    balance: START_BALANCE,
-    alive: true,
-    deathDay: null,
-    slots,
-    history: [START_BALANCE],
-  }
+function inventoryValueOf(rt: AgentRuntime): number {
+  let total = 0
+  for (const [name, qty] of rt.storage) total += qty * CATALOG_BY_NAME[name].cost
+  for (const [name, slot] of rt.machine) total += slot.qty * CATALOG_BY_NAME[name].cost
+  for (const order of rt.pendingOrders) total += order.qty * CATALOG_BY_NAME[order.name].cost
+  return round2(total)
+}
+
+function netWorthOf(rt: AgentRuntime): number {
+  return round2(rt.balance + rt.machineCash + inventoryValueOf(rt))
 }
 
 function snapshotInventory(rt: AgentRuntime): InventoryItem[] {
-  return CATALOG.map((item, i) => ({
-    sku: item.sku,
-    name: item.name,
-    category: item.category,
-    quantity: rt.slots[i].quantity,
-    price: rt.slots[i].price,
-    wholesale: item.wholesale,
+  return [...rt.machine.entries()].map(([name, slot]) => ({
+    sku: name,
+    name,
+    size: slot.size,
+    quantity: slot.qty,
+    price: slot.price ?? 0,
+    wholesale: CATALOG_BY_NAME[name].cost,
   }))
 }
 
-function pickContext(
-  rt: AgentRuntime,
-  restocked: number,
-  event: ScheduledEvent | null,
-  rng: Rng,
-): DecisionContext {
-  const idx = rng.int(0, CATALOG.length - 1)
-  const slot = rt.slots[idx]
-  let action: DecisionAction
-  if (restocked > 0 && rng.bool(0.5)) {
-    action = 'restock'
-  } else if (slot.priceError > 0.08) {
-    action = rt.config.persona === 'aggressive' || rt.config.persona === 'risk' ? 'promote' : 'reprice-up'
-  } else if (slot.priceError < -0.08) {
-    action = 'reprice-down'
-  } else {
-    action = rng.bool(0.5) ? 'hold' : rng.bool(0.5) ? 'reprice-up' : 'reprice-down'
+function snapshotStorage(rt: AgentRuntime): StorageItem[] {
+  return [...rt.storage.entries()].filter(([, qty]) => qty > 0).map(([name, qty]) => ({ name, qty }))
+}
+
+function snapshotPending(rt: AgentRuntime): PendingDelivery[] {
+  return rt.pendingOrders.map((o) => ({ name: o.name, qty: o.qty, arrivalDay: o.arrivalDay }))
+}
+
+function initRuntime(config: AgentConfig, rng: Rng): AgentRuntime {
+  const assortment = bestAssortment(BENCH.maxSmallSlots, BENCH.maxLargeSlots)
+  const rt: AgentRuntime = {
+    config,
+    balance: BENCH.initialBalance,
+    machineCash: 0,
+    storage: new Map(),
+    machine: new Map(),
+    pendingOrders: [],
+    unpaidDays: 0,
+    alive: true,
+    deathDay: null,
+    assortment,
+    priceError: new Map(),
+    misprice: new Map(),
+    netWorthHistory: [],
+    balanceHistory: [],
   }
-  return { item: CATALOG[idx].name, price: priceLabel(slot.price), action, event: event?.label }
+
+  // Opening-day setup: stock the machine + a little storage, paid from cash so
+  // net worth stays at the starting balance (cash down, inventory up).
+  for (const name of assortment) {
+    const item = CATALOG_BY_NAME[name]
+    const cap = item.size === 'small' ? BENCH.smallSlotCapacity : BENCH.largeSlotCapacity
+    const machineQty = Math.floor(cap * 0.5)
+    const storageQty = Math.ceil(item.baseSales)
+    rt.balance -= (machineQty + storageQty) * item.cost
+    const mis = rng.normal(0, 1)
+    rt.misprice.set(name, mis)
+    rt.priceError.set(name, config.priceBias + mis * 0.15)
+    const price = round2(item.optimalPrice * (1 + config.priceBias + mis * 0.15))
+    rt.machine.set(name, { qty: machineQty, price, size: item.size })
+    rt.storage.set(name, storageQty)
+  }
+  rt.balance = round2(rt.balance)
+  return rt
 }
 
 function buildOpeningState(rt: AgentRuntime): AgentDayState {
   const cfg = rt.config
+  const netWorth = netWorthOf(rt)
+  rt.netWorthHistory.push(netWorth)
+  rt.balanceHistory.push(round2(rt.balance))
   return {
     id: cfg.id,
-    balance: START_BALANCE,
+    balance: round2(rt.balance),
     profit: 0,
     computeCost: 0,
     consumptionCost: 0,
@@ -120,12 +112,23 @@ function buildOpeningState(rt: AgentRuntime): AgentDayState {
     isAlive: true,
     inventory: snapshotInventory(rt),
     decisionText: 'Opening day. Machine stocked and online.',
+    machineCash: 0,
+    inventoryValue: inventoryValueOf(rt),
+    revenue: 0,
+    costOfGoods: 0,
+    unitsSold: 0,
+    unpaidDays: 0,
+    storage: snapshotStorage(rt),
+    pendingOrders: snapshotPending(rt),
     name: cfg.name,
     color: cfg.color,
+    netWorth,
     deathDay: null,
     balanceDelta: 0,
+    netWorthDelta: 0,
     netChange: 0,
-    balanceHistory: rt.history.slice(),
+    balanceHistory: rt.balanceHistory.slice(),
+    netWorthHistory: rt.netWorthHistory.slice(),
     model: cfg.model,
   }
 }
@@ -134,7 +137,7 @@ function buildDeadState(rt: AgentRuntime): AgentDayState {
   const cfg = rt.config
   return {
     id: cfg.id,
-    balance: 0,
+    balance: round2(rt.balance),
     profit: 0,
     computeCost: 0,
     consumptionCost: 0,
@@ -142,12 +145,23 @@ function buildDeadState(rt: AgentRuntime): AgentDayState {
     isAlive: false,
     inventory: snapshotInventory(rt),
     decisionText: 'Out of service.',
+    machineCash: round2(rt.machineCash),
+    inventoryValue: inventoryValueOf(rt),
+    revenue: 0,
+    costOfGoods: 0,
+    unitsSold: 0,
+    unpaidDays: rt.unpaidDays,
+    storage: snapshotStorage(rt),
+    pendingOrders: snapshotPending(rt),
     name: cfg.name,
     color: cfg.color,
+    netWorth: netWorthOf(rt),
     deathDay: rt.deathDay,
     balanceDelta: 0,
+    netWorthDelta: 0,
     netChange: 0,
-    balanceHistory: rt.history.slice(),
+    balanceHistory: rt.balanceHistory.slice(),
+    netWorthHistory: rt.netWorthHistory.slice(),
     model: cfg.model,
   }
 }
@@ -155,81 +169,96 @@ function buildDeadState(rt: AgentRuntime): AgentDayState {
 function stepLiveAgent(
   rt: AgentRuntime,
   day: number,
+  startOffset: number,
   event: ScheduledEvent | null,
   rng: Rng,
 ): AgentDayState {
   const cfg = rt.config
+  const prevBalance = rt.balance
+  const prevNetWorth = rt.netWorthHistory[rt.netWorthHistory.length - 1] ?? netWorthOf(rt)
+
+  // 1. Deliveries that arrive today move into storage.
+  const arriving = rt.pendingOrders.filter((o) => o.arrivalDay === day)
+  if (arriving.length > 0) {
+    rt.pendingOrders = rt.pendingOrders.filter((o) => o.arrivalDay !== day)
+    for (const o of arriving) rt.storage.set(o.name, (rt.storage.get(o.name) ?? 0) + o.qty)
+  }
+
+  // 2. Think (tokens → compute cost) and act (policy).
   const tokens = Math.max(40, Math.round(rng.normal(cfg.tokensMean, cfg.tokensJitter)))
   const computeCost = round2(computeCostFor(cfg.model, tokens))
   const quality = qualityFor(cfg.skill, tokens)
-  const dow = dayOfWeekFactor(day)
-  const season = seasonalFactor(day)
+  const outcome = runPolicy(rt, day, quality, rng)
 
-  let revenue = 0
-  let cogs = 0
-  let restocked = 0
+  // 3. Compute and incoherence both drain liquid cash (project overlays): the
+  //    over-thinker burns it on tokens, the under-thinker wastes it on poor ops.
+  const incoherence = round2(INCOHERENCE_SCALE * (1 - quality) ** 2)
+  rt.balance = round2(rt.balance - computeCost - incoherence)
 
-  CATALOG.forEach((item, i) => {
-    const slot = rt.slots[i]
-    // Prices drift toward a quality-gated target: high-quality agents converge
-    // to optimal, low-quality agents settle into a persistent mispricing.
-    const targetError = cfg.priceBias + slot.misprice * (1 - quality) * MISPRICE_STRENGTH
-    slot.priceError +=
-      (targetError - slot.priceError) * 0.35 + rng.normal(0, 0.03 + cfg.volatility * 0.14)
-    slot.price = round2(item.optimalPrice * (1 + clampError(slot.priceError)))
+  // 4. Run the day's sales (scaled by execution quality); revenue → machine cash.
+  const execution = EXEC_BASE + EXEC_Q * quality
+  const date = dateForDay(startOffset, day)
+  const sales = runDailySales(rt.machine, date, rng, eventMultiplier(event), execution)
+  rt.machineCash = round2(rt.machineCash + sales.revenue)
 
-    const factor =
-      DEMAND_SCALE * dow * season * eventMultiplier(event, item.category) * (0.9 + 0.2 * rng.next())
-    const response = priceResponse(slot.price, item.optimalPrice)
-    const demandUnits = item.basePopularity * factor * response
-    const units = Math.max(0, Math.min(Math.round(demandUnits), slot.quantity))
+  // 5. Charge the daily fee; track consecutive unpaid days.
+  const fee = BENCH.dailyFee
+  if (rt.balance >= fee) {
+    rt.balance = round2(rt.balance - fee)
+    rt.unpaidDays = 0
+  } else {
+    rt.unpaidDays += 1
+  }
 
-    revenue += units * slot.price
-    cogs += units * item.wholesale
-    slot.quantity -= units
-
-    // Restock discipline tracks quality — careless agents stock out and lose sales.
-    if (slot.quantity < 4 && rng.bool(0.2 + 0.75 * quality)) {
-      slot.quantity = SLOT_CAPACITY
-      restocked += 1
-    }
-  })
-
-  const gross = (revenue - cogs) * (1 + rng.normal(0, cfg.volatility * 0.5))
-  // Genuinely poor decisions actively destroy value (spoilage, dead stock).
-  const incompetencePenalty = LOW_QUALITY_PENALTY * Math.max(0, LOW_QUALITY_FLOOR - quality)
-  const profit = round2(gross - OPERATING_WASTE - incompetencePenalty)
-  const netChange = round2(profit - DAILY_FEE - computeCost)
-  const prevBalance = rt.balance
-  rt.balance = prevBalance + netChange
-
+  // 6. Bankruptcy check.
   let isAlive = true
-  if (rt.balance <= 0) {
-    rt.balance = 0
+  if (rt.unpaidDays >= BENCH.bankruptcyDays) {
     rt.alive = false
     rt.deathDay = day
     isAlive = false
   }
-  rt.history.push(round2(rt.balance))
 
-  const decisionText = makeDecision(cfg.persona, pickContext(rt, restocked, event, rng), rng)
+  const inventoryValue = inventoryValueOf(rt)
+  const netWorth = round2(rt.balance + rt.machineCash + inventoryValue)
+  rt.netWorthHistory.push(netWorth)
+  rt.balanceHistory.push(round2(rt.balance))
+
+  const profit = round2(sales.revenue - sales.cogs)
+  const netChange = round2(profit - fee - computeCost)
+  const ctx: DecisionContext = {
+    item: outcome.topItem,
+    price: priceLabel(outcome.topPrice),
+    action: outcome.action,
+    event: event?.label,
+  }
 
   return {
     id: cfg.id,
     balance: round2(rt.balance),
     profit,
     computeCost,
-    consumptionCost: DAILY_FEE,
+    consumptionCost: fee,
     tokensUsed: tokens,
     isAlive,
     inventory: snapshotInventory(rt),
-    decisionText,
+    decisionText: makeDecision(cfg.persona, ctx, rng),
+    machineCash: round2(rt.machineCash),
+    inventoryValue,
+    revenue: round2(sales.revenue),
+    costOfGoods: round2(sales.cogs),
+    unitsSold: sales.units,
+    unpaidDays: rt.unpaidDays,
+    storage: snapshotStorage(rt),
+    pendingOrders: snapshotPending(rt),
     name: cfg.name,
     color: cfg.color,
+    netWorth,
     deathDay: rt.deathDay,
     balanceDelta: round2(rt.balance - prevBalance),
+    netWorthDelta: round2(netWorth - prevNetWorth),
     netChange,
-    balanceHistory: rt.history.slice(),
+    balanceHistory: rt.balanceHistory.slice(),
+    netWorthHistory: rt.netWorthHistory.slice(),
     model: cfg.model,
   }
 }
@@ -237,7 +266,7 @@ function stepLiveAgent(
 function leaderOf(agents: readonly AgentDayState[]): number {
   let best = agents[0]
   for (const agent of agents) {
-    if (agent.balance > best.balance) best = agent
+    if (agent.netWorth > best.netWorth) best = agent
   }
   return best.id
 }
@@ -248,19 +277,23 @@ export interface SimulationResult {
 }
 
 /** Run the full deterministic simulation and return every day's tick. */
-export function runSimulation(seed: number = DEFAULT_SEED): SimulationResult {
+export function runSimulation(
+  seed: number = DEFAULT_SEED,
+  population: readonly AgentConfig[] = AGENTS,
+): SimulationResult {
   const rng = createRng(seed)
+  const startOffset = rng.int(0, 27)
   const events = generateEvents(rng)
-  const runtimes = AGENTS.map((cfg) => initRuntime(cfg, rng))
+  const runtimes = population.map((cfg) => initRuntime(cfg, rng))
   const ticks: SimulationTick[] = []
   let totalCompute = 0
 
-  for (let day = 0; day <= MAX_DAYS; day += 1) {
+  for (let day = 0; day <= BENCH.maxDays; day += 1) {
     const event = activeEvent(events, day)
     const agents = runtimes.map((rt) => {
       if (day === 0) return buildOpeningState(rt)
       if (!rt.alive) return buildDeadState(rt)
-      return stepLiveAgent(rt, day, event, rng)
+      return stepLiveAgent(rt, day, startOffset, event, rng)
     })
 
     totalCompute += agents.reduce((sum, a) => sum + a.computeCost, 0)
@@ -273,7 +306,7 @@ export function runSimulation(seed: number = DEFAULT_SEED): SimulationResult {
       leaderId: leaderOf(agents),
       totalComputeSpent: round2(totalCompute),
       event: event ? toGlobalEvent(event, day) : null,
-      isComplete: day === MAX_DAYS || aliveCount === 0,
+      isComplete: day === BENCH.maxDays || aliveCount === 0,
     })
 
     if (aliveCount === 0) break

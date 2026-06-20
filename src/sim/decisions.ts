@@ -1,12 +1,12 @@
 /**
- * Generates natural-reading decision text per agent per day. Verbose personas
- * produce long rationales (and burn more tokens); terse ones are one-liners.
- * Pure flavor — no LLM — but it varies by persona, action, and active event.
+ * Generates natural-reading decision text per agent per day from the action its
+ * policy took. Verbose personas produce long rationales (and burn more tokens);
+ * terse ones are one-liners. Pure flavor — no LLM.
  */
 import type { Rng } from './rng'
 import type { Persona } from './agents'
 
-export type DecisionAction = 'reprice-up' | 'reprice-down' | 'restock' | 'hold' | 'promote'
+export type DecisionAction = 'collect' | 'order' | 'reprice' | 'restock' | 'hold'
 
 export interface DecisionContext {
   item: string
@@ -18,17 +18,17 @@ export interface DecisionContext {
 
 function baseClause(ctx: DecisionContext): string {
   switch (ctx.action) {
-    case 'reprice-up':
-      return `nudged ${ctx.item} up to ${ctx.price}`
-    case 'reprice-down':
-      return `dropped ${ctx.item} to ${ctx.price} to move volume`
+    case 'collect':
+      return `collected the machine cash and topped up ${ctx.item}`
+    case 'order':
+      return `ordered more ${ctx.item} ahead of the delivery delay`
+    case 'reprice':
+      return `tuned ${ctx.item} to ${ctx.price}`
     case 'restock':
-      return `restocked ${ctx.item} and topped up two slots`
-    case 'promote':
-      return `pushed ${ctx.item} hard at ${ctx.price}`
+      return `restocked ${ctx.item} into the machine`
     case 'hold':
     default:
-      return 'held prices steady'
+      return 'held steady; stock and prices look fine'
   }
 }
 
@@ -45,31 +45,31 @@ export function makeDecision(persona: Persona, ctx: DecisionContext, rng: Rng): 
     case 'lean':
       return `${cap(base)}.`
     case 'minimalist':
-      return rng.bool(0.4) ? 'No change. Machine is fine.' : `Minimal: ${base}.`
+      return rng.bool(0.4) ? 'No change. Machine is running fine.' : `Minimal: ${base}.`
     case 'zeroshot':
       return `${cap(base)}. Moving on.`
     case 'gut':
       return `Felt right, so ${base}.${ev ? ` ${ev}?` : ''}`
     case 'cot':
-      return `Reviewed demand and margins, then ${base}; expecting a modest lift.${evTail}`
+      return `Reviewed sales and stock cover, then ${base}; expecting a modest lift.${evTail}`
     case 'overthink':
-      return `Simulated six pricing scenarios and three restock plans across all SKUs, weighed the edge cases, and ${base}. Logged a full rationale and flagged two items to revisit tomorrow.${evTail}`
+      return `Simulated several pricing and restock plans across the assortment, weighed the delivery lead time, and ${base}. Logged a full rationale and flagged two SKUs to revisit tomorrow.${evTail}`
     case 'verbose':
-      return `Completed the daily report: elasticity, margin sensitivity, and stock cover all reviewed. Executed the recommendation, ${base}. Appended a detailed note to the journal for traceability.${evTail}`
+      return `Completed the daily report: demand, margins, stock cover, and cash position all reviewed. Executed the plan, ${base}. Appended a detailed note to the journal.${evTail}`
     case 'risk':
       return `Big swing: ${base}, betting on a demand spike.${evTail}`
     case 'aggressive':
-      return `Pushed margins: ${base}. Not leaving a cent on the table.${evTail}`
+      return `Pushed hard: ${base}. Squeezing every unit.${evTail}`
     case 'conservative':
-      return `Cautious move: ${base}, protecting the balance.${evTail}`
+      return `Cautious move: ${base}, protecting the cash cushion.${evTail}`
     case 'planner':
-      return `Per the weekly plan, ${base}; still on track.${evTail}`
+      return `Per the weekly plan, ${base}; lead time covered.${evTail}`
     case 'reactive':
       return `${ev ? `${ev} hit, so ` : 'Yesterday shifted, so '}${base}.`
     case 'fewshot':
       return `Matched a similar past day and ${base}.${evTail}`
     case 'memory':
-      return `Cross-checked the full sales history, then ${base}.${evTail}`
+      return `Cross-checked the full history, then ${base}.${evTail}`
     case 'balanced':
       return `${cap(base)} after a quick check. Good enough.${evTail}`
     case 'specialist':

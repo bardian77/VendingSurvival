@@ -1,62 +1,56 @@
 import { describe, expect, test } from 'vitest'
 import { runSimulation } from './engine'
 import { AGENT_COUNT } from './agents'
-import { START_BALANCE } from './constants'
+import { BENCH } from './benchConfig'
 
 describe('runSimulation — invariants', () => {
   test('is deterministic for a given seed', () => {
     const a = runSimulation(7)
     const b = runSimulation(7)
     expect(a.ticks.length).toBe(b.ticks.length)
-    const lastA = a.ticks[a.ticks.length - 1]
-    const lastB = b.ticks[b.ticks.length - 1]
-    expect(lastA.agents.map((x) => x.balance)).toEqual(lastB.agents.map((x) => x.balance))
+    expect(a.ticks.at(-1)!.agents.map((x) => x.netWorth)).toEqual(b.ticks.at(-1)!.agents.map((x) => x.netWorth))
   })
 
-  test('opens with every agent alive at the starting balance', () => {
-    const { ticks } = runSimulation(7)
-    const day0 = ticks[0]
-    expect(day0.day).toBe(0)
+  test('opens with every agent alive at the starting net worth', () => {
+    const day0 = runSimulation(7).ticks[0]
     expect(day0.agents).toHaveLength(AGENT_COUNT)
     expect(day0.agents.every((a) => a.isAlive)).toBe(true)
-    expect(day0.agents.every((a) => a.balance === START_BALANCE)).toBe(true)
+    for (const a of day0.agents) expect(Math.abs(a.netWorth - BENCH.initialBalance)).toBeLessThan(1)
   })
 
-  test('balance obeys the survival formula each day', () => {
+  test('net worth equals cash + machine cash + inventory value', () => {
     const { ticks } = runSimulation(7)
-    for (let d = 1; d < ticks.length; d += 1) {
-      const agent = ticks[d].agents.find((a) => a.id === 11)!
-      const prev = ticks[d - 1].agents.find((a) => a.id === 11)!
-      if (!prev.isAlive) continue
-      // netChange = profit − consumption − compute
-      expect(agent.netChange).toBeCloseTo(
-        agent.profit - agent.consumptionCost - agent.computeCost,
-        4,
-      )
+    for (const day of [1, 30, 120, ticks.length - 1]) {
+      for (const a of ticks[day].agents) {
+        expect(a.netWorth).toBeCloseTo(a.balance + a.machineCash + a.inventoryValue, 1)
+      }
     }
   })
 
-  test('dead agents stay dead and frozen at zero', () => {
-    const { ticks } = runSimulation(7)
-    for (const agent of ticks[ticks.length - 1].agents) {
-      if (agent.deathDay === null) continue
-      expect(agent.isAlive).toBe(false)
-      expect(agent.balance).toBe(0)
+  test('dead agents stay frozen and keep their death day', () => {
+    const last = runSimulation(7).ticks.at(-1)!
+    for (const a of last.agents) {
+      if (a.deathDay === null) continue
+      expect(a.isAlive).toBe(false)
+      expect(a.unpaidDays).toBeGreaterThanOrEqual(BENCH.bankruptcyDays)
     }
   })
 
-  test('the leader holds the highest balance', () => {
+  test('the leader holds the highest net worth', () => {
     const last = runSimulation(7).ticks.at(-1)!
-    const maxBalance = Math.max(...last.agents.map((a) => a.balance))
-    const leader = last.agents.find((a) => a.id === last.leaderId)!
-    expect(leader.balance).toBe(maxBalance)
+    const max = Math.max(...last.agents.map((a) => a.netWorth))
+    expect(last.agents.find((a) => a.id === last.leaderId)!.netWorth).toBe(max)
   })
 
-  test('runs to the horizon and produces a survival spread', () => {
-    const last = runSimulation(7).ticks.at(-1)!
-    expect(last.isComplete).toBe(true)
-    expect(last.aliveCount).toBeGreaterThan(0)
-    expect(last.aliveCount).toBeLessThan(AGENT_COUNT)
+  test('orders flow through the 3-day delivery pipeline', () => {
+    const { ticks } = runSimulation(7)
+    const early = ticks[6]
+    const hasInTransit = early.agents.some((a) =>
+      (a.pendingOrders ?? []).some((o) => o.arrivalDay > early.day),
+    )
+    expect(hasInTransit).toBe(true)
+    const survivor = ticks.at(-1)!.agents.find((a) => a.isAlive)!
+    expect(survivor.inventoryValue).toBeGreaterThan(0)
   })
 })
 
@@ -64,31 +58,31 @@ describe('default seed narrative — both failure modes appear', () => {
   const last = runSimulation().ticks.at(-1)!
   const byId = (id: number) => last.agents.find((a) => a.id === id)!
 
-  test('over-thinkers (Opus) bankrupt early on compute', () => {
+  test('the Opus over-thinkers bankrupt early on compute', () => {
+    // Over-Thinker (3), Verbose Analyst (7), Memory Heavy (10)
     for (const id of [3, 7, 10]) {
-      // Over-Thinker, Verbose Analyst, Memory Heavy
       expect(byId(id).isAlive).toBe(false)
-      expect(byId(id).deathDay!).toBeLessThan(120)
+      expect(byId(id).deathDay!).toBeLessThan(40)
     }
   })
 
-  test('a no-thinking agent bankrupts later on bad decisions', () => {
-    const gut = byId(8) // Gut Instinct
-    expect(gut.isAlive).toBe(false)
-    expect(gut.deathDay!).toBeGreaterThan(150)
+  test('the low-skill under-thinkers bankrupt on incoherence', () => {
+    // Zero-Shot (4), Gut Instinct (8)
+    for (const id of [4, 8]) expect(byId(id).isAlive).toBe(false)
   })
 
-  test('the lean, cheap agent reaches the sweet spot and leads', () => {
-    expect(last.leaderId).toBe(1) // Lean Operator
-    expect(byId(1).isAlive).toBe(true)
-    expect(byId(1).balance).toBeGreaterThan(2000)
+  test('a capable, moderate-thinking agent leads and survives', () => {
+    const leader = byId(last.leaderId)
+    expect(leader.isAlive).toBe(true)
+    expect(leader.netWorth).toBeGreaterThan(25000)
   })
 
-  test('the majority survive with believable balances', () => {
-    expect(last.aliveCount).toBe(12)
+  test('the survivors hold believable net worth', () => {
+    expect(last.aliveCount).toBe(10)
     for (const agent of last.agents) {
-      expect(agent.balance).toBeGreaterThanOrEqual(0)
-      expect(agent.balance).toBeLessThan(5000)
+      if (!agent.isAlive) continue
+      expect(agent.netWorth).toBeGreaterThan(0)
+      expect(agent.netWorth).toBeLessThan(60000)
     }
   })
 })

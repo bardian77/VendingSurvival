@@ -3,6 +3,7 @@
  * (identical for mock or live), tracks a DVR-style view pointer over received
  * history, and exposes playback controls that delegate to the active source.
  */
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import type { SimulationTick } from '../types'
 import type { ConnectionStatus, DataSource } from '../data/DataSource'
@@ -117,4 +118,56 @@ export const selectCurrentTick = (state: SimState): SimulationTick | null =>
 
 export function useCurrentTick(): SimulationTick | null {
   return useSimStore(selectCurrentTick)
+}
+
+export interface AgentSeries {
+  days: number[]
+  /** Liquid cash balance each day. */
+  balance: number[]
+  profit: number[]
+  compute: number[]
+  tokens: number[]
+  cogs: number[]
+  /** Sales revenue each day. */
+  revenue: number[]
+  /** Units sold each day. */
+  units: number[]
+}
+
+/** Build per-day series for one agent from received ticks, stopping at death. */
+function buildSeries(ticks: SimulationTick[], viewDay: number, id: number): AgentSeries {
+  const series: AgentSeries = {
+    days: [],
+    balance: [],
+    profit: [],
+    compute: [],
+    tokens: [],
+    cogs: [],
+    revenue: [],
+    units: [],
+  }
+  for (let day = 0; day <= viewDay; day += 1) {
+    const tick = ticks[day]
+    if (!tick) continue
+    const agent = tick.agents.find((a) => a.id === id)
+    if (!agent) break
+    // Only the choices made up to the moment of death — never the frozen days after.
+    if (agent.deathDay !== null && day > agent.deathDay) break
+    series.days.push(day)
+    series.balance.push(agent.balance)
+    series.profit.push(agent.profit)
+    series.compute.push(agent.computeCost)
+    series.tokens.push(agent.tokensUsed)
+    series.cogs.push(agent.costOfGoods)
+    series.revenue.push(agent.revenue)
+    series.units.push(agent.unitsSold)
+  }
+  return series
+}
+
+/** Per-agent metric history (balance / revenue / compute / sales …), truncated at death. */
+export function useAgentSeries(id: number): AgentSeries {
+  const ticks = useSimStore((s) => s.ticks)
+  const viewDay = useSimStore((s) => s.viewDay)
+  return useMemo(() => buildSeries(ticks, viewDay, id), [ticks, viewDay, id])
 }
