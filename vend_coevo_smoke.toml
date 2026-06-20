@@ -1,0 +1,26 @@
+# Fast in-run co-evolution smoke config for prime-rl.
+# This is intentionally short/easy: it validates 16 evolved slots + 1 baseline slot quickly,
+# but it is not the bankruptcy-pressure config.
+max_steps = 20
+seq_len = 16384
+[ckpt]
+[model]
+name = "Qwen/Qwen3-1.7B"
+[trainer.model]
+impl = "auto"
+[trainer.model.ac]
+freq = 1
+[trainer.model.lora]
+rank = 32
+alpha = 64
+[trainer.optim]
+lr = 1e-5
+[orchestrator]
+batch_size = 34
+group_size = 2
+[orchestrator.train.sampling]
+max_completion_tokens = 384
+[[orchestrator.train.env]]
+id = "vending-survival"
+args = { coevo_dir = "/root/coevo", pop_size = 16, include_baseline = true, max_turns = 16, initial_balance = 200, daily_fee = 5, demand_scale = 1.0, compute_cost = 0.5, bankruptcy_days = 3, max_days = 30 }
+[inference]

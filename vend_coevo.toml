@@ -1,9 +1,12 @@
 # In-run genome co-evolution for prime-rl (needs 2 GPUs: 1 inference + 1 trainer).
+# Default next-run config: hard bankruptcy-pressure setting from the df36/demand0.15 track.
 # Run the GA controller as a sidecar in the SAME session, then launch RL:
 #   COEVO_DIR=/root/coevo COEVO_POP=16 COEVO_MIN_SAMPLES=2 python coevo.py &   # evolves pool.json
 #   WANDB_MODE=disabled uv run rl @ vend_coevo.toml                            # trains + logs fitness
 # batch_size/group_size = 34/2 = (16 evolved slots + 1 baseline slot) x 2 rollouts.
 # The sidecar evolves only the 16 genome slots; the baseline is tracked but never bred.
+# Hard econ: initial_balance=60, daily_fee=12, demand_scale=0.15, compute_cost=0.3.
+# Previous df36 demand0.15 run produced ~25-56% bankruptcy, so respawn pressure is active.
 max_steps = 20
 seq_len = 16384
 [ckpt]
@@ -25,5 +28,5 @@ group_size = 2
 max_completion_tokens = 384
 [[orchestrator.train.env]]
 id = "vending-survival"
-args = { coevo_dir = "/root/coevo", pop_size = 16, include_baseline = true, max_turns = 16, initial_balance = 200, daily_fee = 5, demand_scale = 1.0, compute_cost = 0.5, bankruptcy_days = 3, max_days = 30 }
+args = { coevo_dir = "/root/coevo", pop_size = 16, include_baseline = true, max_turns = 40, initial_balance = 60, daily_fee = 12, demand_scale = 0.15, compute_cost = 0.3, bankruptcy_days = 3, max_days = 30 }
 [inference]
