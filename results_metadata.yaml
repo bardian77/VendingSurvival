@@ -91,3 +91,8 @@ new_reward_comparison:   # all on the NEW reward: -500 if bankrupt else 200 + 0.
       GA_best_gen0: { reward: 395.0, pct_of_optimal: 69 }
       GA_best_gen2: { reward: 351.0, pct_of_optimal: 61 }
       GA_mean_gen2: { reward: 304.0, pct_of_optimal: 53 }
+
+ga_vs_baseline_apples_to_apples:   # same model/horizon/training (2B, 40-turn, 8-step), new reward
+  default_config_tfpl1:  { final_reward: 298.5, pct_of_optimal: 42 }
+  winning_genome_wsi9tv2: { genome: [0.256, 0.83, 0.919], final_reward: 374.9, pct_of_optimal: 52 }
+  finding: "evolved config -> +26% over default on the trained 2B (config-GA helps the policy)"
