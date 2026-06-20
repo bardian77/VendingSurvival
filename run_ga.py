@@ -28,9 +28,9 @@ def make_cfg(pop, gen):
     gjson = json.dumps([gvec(g) for g in pop])           # JSON string -> valid TOML string
     cfg = f'''model = "{MODEL}"
 loss = "rl"
-max_steps = 4
-batch_size = 32
-rollouts_per_example = 2
+max_steps = 1
+batch_size = 64
+rollouts_per_example = 4
 max_inflight_rollouts = 16
 [sampling]
 max_tokens = 1024
@@ -60,23 +60,15 @@ def wait(rid, max_min=35):
         time.sleep(10)
 
 def fitness(rid, pop):
+    # rollout samples exist only at step 0; group by problem_id (= dataset row = genome index)
+    try: samples = json.loads(sh([PRIME, "train", "rollouts", rid, "-s", "0", "-n", "200", "--plain"], 150)).get("samples", [])
+    except Exception: samples = []
     by = {}
-    for step in (3, 2, 1):
-        try: samples = json.loads(sh([PRIME, "train", "rollouts", rid, "-s", str(step), "-n", "120", "--plain"], 150)).get("samples", [])
-        except Exception: samples = []
-        for s in samples:
-            info = s.get("info")
-            if isinstance(info, str):
-                try: info = json.loads(info)
-                except Exception: info = {}
-            st = info.get("operating_style", "") if isinstance(info, dict) else ""
-            by.setdefault(st, []).append(s.get("reward", 0.0))
-    fits, matched = [], 0
-    for g in pop:
-        vals = by.get(line(gvec(g)), [])
-        if vals: matched += 1
-        fits.append(sum(vals) / len(vals) if vals else -1e9)
-    print(f"  fitness matched {matched}/{POP}", flush=True)
+    for s in samples:
+        pid = s.get("problem_id")
+        if pid is not None: by.setdefault(pid, []).append(s.get("reward", 0.0))
+    fits = [(sum(by[i]) / len(by[i]) if by.get(i) else -1e9) for i in range(len(pop))]
+    print(f"  fitness matched {sum(1 for f in fits if f > -1e8)}/{len(pop)}", flush=True)
     return fits
 
 def tour(pop, fits, k=3):
