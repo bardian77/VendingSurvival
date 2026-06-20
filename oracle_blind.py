@@ -15,7 +15,7 @@ import asyncio, statistics, math
 from vending_survival import (load_environment, restock, collect_cash, wait_for_next_day,
                               net_worth_of, CATALOG)
 
-DAY_VALUE, NW_WEIGHT, BANKRUPT_PENALTY = 50.0, 0.5, 500.0
+SURVIVE_BONUS, PROFIT_WEIGHT, BANKRUPT_PENALTY = 200.0, 0.5, 500.0  # new reward: profit under survival gate
 NAMES = [p["name"] for p in CATALOG]
 REF = {p["name"]: p["price"] for p in CATALOG}
 COST = {p["name"]: p["cost"] for p in CATALOG}
@@ -76,7 +76,7 @@ def run_blind(seed, max_turns=40, compute_cost=0.5, **econ):
         if turns[0] >= max_turns: break
         wait_for_next_day(state); tick()
     bankrupt = vb["game_over_reason"] == "bankruptcy"
-    r = DAY_VALUE * vb["day"] + (-BANKRUPT_PENALTY if bankrupt else NW_WEIGHT * net_worth_of(vb))
+    r = -BANKRUPT_PENALTY if bankrupt else (SURVIVE_BONUS + PROFIT_WEIGHT * (net_worth_of(vb) - econ.get("initial_balance", 200.0)))
     return dict(reward=r, days=vb["day"], nw=net_worth_of(vb), units=vb["units_sold"],
                 bankrupt=bankrupt, turns=turns[0])
 

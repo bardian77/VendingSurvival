@@ -76,3 +76,18 @@ todo:
   - "Re-score oracle.py + oracle_blind.py on the NEW reward (free, scripted) to get a comparable ceiling for the 2B baseline + GA."
   - "Optional: a 4B baseline on the new reward + corrected prompt for a clean cross-model + prompt comparison."
   - "v061ou1rc4znlnl3c3wqg8bu (2B, chenyusu, OLD reward + OLD prompt) is NOT a clean prompt A/B vs tfpl1 — reward differs too."
+
+new_reward_comparison:   # all on the NEW reward: -500 if bankrupt else 200 + 0.5*(net_worth - initial_balance)
+  ceilings:
+    horizon_40: { full_info_oracle: 715.7, blind_oracle: 574.4 }
+    horizon_30: { full_info_oracle: 574.5, blind_oracle: 449.3 }
+  agents_pct_of_full_info:
+    horizon_40:
+      blind_oracle:      { reward: 574.4, pct_of_optimal: 80 }   # blind BEATS 4B on the profit reward (flip vs old days-reward)
+      4B_baseline:       { reward: 549.0, pct_of_optimal: 77 }   # recomputed from logged net_worth 898
+      4B_untrained:      { reward: 447.5, pct_of_optimal: 63 }   # from net_worth 695
+      2B_baseline_tfpl1: { reward: 298.5, pct_of_optimal: 42 }
+    horizon_30:
+      GA_best_gen0: { reward: 395.0, pct_of_optimal: 69 }
+      GA_best_gen2: { reward: 351.0, pct_of_optimal: 61 }
+      GA_mean_gen2: { reward: 304.0, pct_of_optimal: 53 }
