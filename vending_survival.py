@@ -130,6 +130,14 @@ def _coevo_read_pool(coevo_dir):
         return None
 
 
+def _coevo_pool_entry_genome(entry):
+    return entry.get("genome") if isinstance(entry, dict) else entry
+
+
+def _coevo_pool_entry_family(entry):
+    return entry.get("family") if isinstance(entry, dict) else None
+
+
 def _coevo_init_pool(coevo_dir, pop_size):
     """Seed pool.json with random genomes if it does not exist yet (idempotent, atomic)."""
     os.makedirs(coevo_dir, exist_ok=True)
@@ -586,7 +594,11 @@ class VendingBenchSimpleEnv(vf.StatefulToolEnv):
                     state["vb"]["coevo_baseline"] = True
                 else:
                     pool = ps["pool"]
-                    genome = pool[slot % len(pool)]
+                    entry = pool[slot % len(pool)]
+                    genome = _coevo_pool_entry_genome(entry)
+                    family = _coevo_pool_entry_family(entry)
+                    if family is not None:
+                        state["vb"]["coevo_family"] = family
                     state["vb"]["coevo_genome"] = genome
                     _inject_genome_into_prompt(state, genome)
 
@@ -712,6 +724,7 @@ async def coevo_fitness_log(state: vf.State) -> float:
             "reward": _survival_reward_value(vb),
             "bankrupt": 1 if vb.get("game_over_reason") == "bankruptcy" else 0,
             "baseline": bool(vb.get("coevo_baseline")),
+            "family": vb.get("coevo_family"),
         })
     return 0.0
 
@@ -744,6 +757,7 @@ def load_environment(
     coevo_dir: str | None = None,
     pop_size: int = 16,
     include_baseline: bool = False,
+    baseline_count: int = 1,
     **kwargs,
 ) -> vf.Environment:
     """Load the simplified (easy) Vending-Bench environment.
@@ -794,16 +808,18 @@ def load_environment(
                 "info": {"seed": seed + i, "slot": i, "conditioning_mode": "coevo"},
             })
         if include_baseline:
-            rows.append({
-                "question": USER_KICKOFF,
-                "answer": "",
-                "info": {
-                    "seed": seed + pop_size,
-                    "slot": pop_size,
-                    "conditioning_mode": "baseline",
-                    "baseline": True,
-                },
-            })
+            for j in range(max(0, int(baseline_count))):
+                rows.append({
+                    "question": USER_KICKOFF,
+                    "answer": "",
+                    "info": {
+                        "seed": seed + pop_size + j,
+                        "slot": pop_size + j,
+                        "conditioning_mode": "baseline",
+                        "baseline": True,
+                        "baseline_index": j,
+                    },
+                })
     else:
         for i in range(max(1, num_examples)):
             if genomes:

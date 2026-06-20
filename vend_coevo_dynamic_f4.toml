@@ -1,0 +1,35 @@
+# In-run genome co-evolution with dynamic F=4 similarity-family labels.
+# This keeps the balanced sampling shape: 16 evolved genome rollouts + 16 baseline
+# control rollouts per step. Families are maintained by the GA sidecar, not fixed
+# by dataset size: set COEVO_FAMILIES=4 and COEVO_MIN_FAMILIES=2 when launching.
+#
+# Launch shape:
+#   COEVO_DIR=/root/coevo_dynamic_f4 COEVO_POP=16 COEVO_MIN_SAMPLES=1 \
+#   COEVO_FAMILIES=4 COEVO_MIN_FAMILIES=2 python coevo.py &
+#   WANDB_MODE=disabled uv run rl @ vend_coevo_dynamic_f4.toml
+#
+# max_steps=12 runs steps 0..11.
+max_steps = 12
+seq_len = 16384
+output_dir = "outputs_dynamic_f4"
+[ckpt]
+[model]
+name = "Qwen/Qwen3-1.7B"
+[trainer.model]
+impl = "auto"
+[trainer.model.ac]
+freq = 1
+[trainer.model.lora]
+rank = 32
+alpha = 64
+[trainer.optim]
+lr = 1e-5
+[orchestrator]
+batch_size = 32
+group_size = 1
+[orchestrator.train.sampling]
+max_completion_tokens = 384
+[[orchestrator.train.env]]
+id = "vending-survival"
+args = { coevo_dir = "/root/coevo_dynamic_f4", pop_size = 16, include_baseline = true, baseline_count = 16, max_turns = 40, initial_balance = 60, daily_fee = 12, demand_scale = 0.15, compute_cost = 0.3, bankruptcy_days = 3, max_days = 30 }
+[inference]

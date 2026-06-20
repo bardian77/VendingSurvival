@@ -1,0 +1,34 @@
+# In-run genome co-evolution with balanced control sampling.
+# This is NOT F=4: it keeps one evolving 16-genome pool and adds 16 baseline
+# control rows so each step has 16 genome rollouts + 16 baseline rollouts.
+#
+# Run the GA controller as a sidecar in the SAME session:
+#   COEVO_DIR=/root/coevo_balanced32 COEVO_POP=16 COEVO_MIN_SAMPLES=1 python coevo.py &
+#   WANDB_MODE=disabled uv run rl @ vend_coevo_balanced32.toml
+#
+# batch_size = 32 = 16 evolved genome rollouts + 16 baseline control rollouts.
+# group_size=1 is used to preserve the requested 32-rollout batch exactly.
+max_steps = 12
+seq_len = 16384
+output_dir = "outputs_balanced32"
+[ckpt]
+[model]
+name = "Qwen/Qwen3-1.7B"
+[trainer.model]
+impl = "auto"
+[trainer.model.ac]
+freq = 1
+[trainer.model.lora]
+rank = 32
+alpha = 64
+[trainer.optim]
+lr = 1e-5
+[orchestrator]
+batch_size = 32
+group_size = 1
+[orchestrator.train.sampling]
+max_completion_tokens = 384
+[[orchestrator.train.env]]
+id = "vending-survival"
+args = { coevo_dir = "/root/coevo_balanced32", pop_size = 16, include_baseline = true, baseline_count = 16, max_turns = 40, initial_balance = 60, daily_fee = 12, demand_scale = 0.15, compute_cost = 0.3, bankruptcy_days = 3, max_days = 30 }
+[inference]
