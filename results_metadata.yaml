@@ -62,7 +62,7 @@ runs:
     result: { survival_reward: 1284.5, days_survived: 13.4, net_worth: 1231, units_sold: 172 }
 
   - id: oracle_blind
-    role: info-matched CEILING (must LEARN demand: 2-price probe -> exploit)
+    role: "info-matched CEILING (must LEARN demand via a 2-price probe -> exploit)"
     model: scripted (oracle_blind.py)
     reward_version: old   # TODO: re-score on new reward
     horizon_turns: 40
