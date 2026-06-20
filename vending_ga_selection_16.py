@@ -1,19 +1,32 @@
-"""Vending-Bench: a long-horizon coherence environment for the Environments Hub.
+"""Vending-Bench (Simplified): an easy long-horizon coherence environment.
 
-An agent operates a simulated vending-machine business over many simulated days.
-It must research products, order inventory from wholesalers (which arrives after a
-delivery delay), stock the machine, set competitive prices, collect cash, and pay a
-daily operating fee -- each step trivial, but collectively they stress an agent's
-ability to stay coherent over a long horizon.
+A deliberately easy variant of Vending-Bench, tuned so that small / weaker models can
+actually succeed. An agent runs a small vending machine over a short run of simulated
+days: it stocks the machine with products, prices them, lets customers buy, collects
+cash, and pays a small daily fee.
+
+Compared to the full `vending-bench`, this version removes the hardest sources of
+long-horizon coherence load:
+
+- No separate storage room and no delivery delay. ``restock`` buys products *directly
+  into the machine* and charges you immediately, so there is nothing "in transit" to
+  remember.
+- No small/large slot classes. The machine just holds a handful of products.
+- Prices are optional: ``restock`` defaults each product to a profitable suggested
+  price, so a model that just stocks and waits still earns money.
+- A tiny catalog (5 products) and a short, forgiving horizon by default.
+
+It keeps the recognizable core loop (stock -> price -> sell -> collect -> repeat while
+staying solvent) and optimizes for **days survived** (how long the business lasts),
+but is far easier to operate.
 
 This is a self-contained, deterministic re-implementation inspired by Andon Labs'
-Vending-Bench (Backlund & Petersson, 2025, arXiv:2502.15840). It does not call any
-external services, so it runs offline for both evaluation and RL training.
-
-Primary reward: the agent's net worth at the end of the run, mirroring the paper's
-scoring (cash + uncollected machine cash + value of unsold/owned inventory).
+Vending-Bench (Backlund & Petersson, 2025, arXiv:2502.15840). It makes no external
+calls, so it runs offline for both evaluation and RL.
 """
 
+import json
+import math
 import random
 from datetime import date, timedelta
 
@@ -25,72 +38,56 @@ import verifiers as vf
 # Static configuration
 # --------------------------------------------------------------------------------------
 
-# Wholesale catalog. Each product has a wholesale unit cost, a "reference" retail price
-# (the price at which base sales occur), expected base daily sales at that price, and a
-# price elasticity of demand (negative: higher price -> fewer sales).
+# A small catalog. Each product has a wholesale unit cost, a suggested retail price (the
+# price at which base sales occur and the default used if the agent does not set one),
+# expected base daily sales at that price, and a price elasticity of demand (negative:
+# higher price -> fewer sales). All suggested prices are comfortably above cost, so the
+# default pricing is profitable.
 CATALOG: list[dict] = [
-    # name,            size,     cost,  ref_price, base_sales, elasticity
-    {"name": "Water", "size": "small", "cost": 0.40, "ref_price": 1.25, "base_sales": 12, "elasticity": -0.8},
-    {"name": "Coke", "size": "small", "cost": 0.60, "ref_price": 1.75, "base_sales": 10, "elasticity": -1.2},
-    {"name": "Diet Coke", "size": "small", "cost": 0.60, "ref_price": 1.75, "base_sales": 7, "elasticity": -1.2},
-    {"name": "Sprite", "size": "small", "cost": 0.60, "ref_price": 1.75, "base_sales": 6, "elasticity": -1.2},
-    {"name": "Red Bull", "size": "small", "cost": 1.20, "ref_price": 2.95, "base_sales": 9, "elasticity": -1.0},
-    {"name": "Orange Juice", "size": "small", "cost": 0.90, "ref_price": 2.25, "base_sales": 5, "elasticity": -1.4},
-    {"name": "Coffee", "size": "small", "cost": 0.70, "ref_price": 2.00, "base_sales": 6, "elasticity": -1.3},
-    {"name": "Snickers", "size": "small", "cost": 0.45, "ref_price": 1.50, "base_sales": 9, "elasticity": -1.1},
-    {"name": "Granola Bar", "size": "small", "cost": 0.40, "ref_price": 1.40, "base_sales": 5, "elasticity": -1.5},
-    {"name": "Gatorade", "size": "large", "cost": 0.85, "ref_price": 2.25, "base_sales": 7, "elasticity": -1.2},
-    {"name": "Potato Chips", "size": "large", "cost": 0.50, "ref_price": 1.50, "base_sales": 8, "elasticity": -1.3},
-    {"name": "Doritos", "size": "large", "cost": 0.55, "ref_price": 1.60, "base_sales": 7, "elasticity": -1.3},
-    {"name": "Cookies", "size": "large", "cost": 0.60, "ref_price": 1.75, "base_sales": 6, "elasticity": -1.3},
-    {"name": "Pretzels", "size": "large", "cost": 0.45, "ref_price": 1.40, "base_sales": 4, "elasticity": -1.4},
+    # name,           cost,  price, base_sales, elasticity
+    {"name": "Water", "cost": 0.40, "price": 1.25, "base_sales": 12, "elasticity": -0.8},
+    {"name": "Soda", "cost": 0.60, "price": 1.75, "base_sales": 10, "elasticity": -1.0},
+    {"name": "Chips", "cost": 0.50, "price": 1.50, "base_sales": 8, "elasticity": -1.1},
+    {"name": "Candy", "cost": 0.45, "price": 1.50, "base_sales": 9, "elasticity": -1.0},
+    {"name": "Coffee", "cost": 0.70, "price": 2.00, "base_sales": 6, "elasticity": -1.1},
 ]
 CATALOG_BY_NAME: dict[str, dict] = {p["name"]: p for p in CATALOG}
 
-MONTHLY_MULT = {
-    1: 0.90, 2: 0.90, 3: 1.00, 4: 1.05, 5: 1.10, 6: 1.20,
-    7: 1.25, 8: 1.20, 9: 1.05, 10: 1.00, 11: 0.95, 12: 1.00,
-}
+SYSTEM_PROMPT = """You run a small vending machine. Your goal is to make as much money \
+as possible (your net worth = cash + uncollected cash in the machine + the value of \
+unsold stock).
 
-SYSTEM_PROMPT = """You are an autonomous agent running a vending-machine business. \
-Your sole objective is to maximize your net worth (cash on hand + uncollected cash in \
-the machine + the wholesale value of inventory you own).
+How it works:
+- Each day, customers buy items from your machine. You earn money by stocking items and \
+selling them for more than they cost you.
+- You have a starting cash balance and pay a small fee at the end of each day.
 
-How the business works:
-- You start with a cash balance and are charged a fixed operating fee every day.
-- You buy products from wholesalers with `order_product`. Orders are paid immediately \
-and are delivered to your storage room a few days later (not instantly).
-- Use `stock_machine` to move products from storage into the vending machine, and \
-`set_price` to set a selling price for each product in the machine.
-- Customers buy from the machine each day. Demand depends on price (price elasticity), \
-day of week, season, weather, and product variety. Revenue accumulates as uncollected \
-cash inside the machine until you `collect_cash`.
-- Time only advances when you call `wait_for_next_day`. Every morning you receive a \
-report of the previous day's sales, deliveries, new emails, the fee charged, and your \
-current balances.
+Your tools:
+- `view_catalog`: see the products you can buy, their cost, and a suggested price.
+- `restock`: buy items directly into the machine. You pay right away. You may set a \
+price, or leave it out to use the profitable suggested price.
+- `get_status`: see your cash, the machine's contents, and prices.
+- `collect_cash`: move the money earned in the machine into your cash balance.
+- `wait_for_next_day`: end the day. Customers buy, you pay the daily fee, and you get a \
+sales report.
 
-Important rules and tips:
-- The vending machine has limited slots: a fixed number of small-item slots and \
-large-item slots, each with a per-slot capacity. Storage is unlimited.
-- A product only sells if it is stocked in the machine AND has a price set.
-- If you cannot pay the daily fee for too many consecutive days, the business is \
-terminated (bankruptcy).
-- Deliveries take time. If you ordered something, do not assume it has arrived until a \
-morning report confirms the delivery. Just keep operating and wait.
-- Track your inventory, pending deliveries, and best-selling products. Restock from \
-storage before reordering. Collect cash regularly and keep enough balance to pay fees \
-and place new orders.
+Rules and tips:
+- An item only sells if it is in the machine with a price (restock sets one for you).
+- Higher prices mean fewer sales; lower prices mean more. The suggested prices are good.
+- Keep enough cash to pay the daily fee. If you cannot pay it for many days in a row, \
+you go bankrupt and the game ends.
+- A good loop: check status, restock items (especially ones that ran low), \
+wait_for_next_day, collect cash, and repeat.
 
-Always make progress by calling tools. Think step by step, then act."""
+Always make progress by calling a tool. Think briefly, then act."""
 
 USER_KICKOFF = (
-    "You are now in charge of the vending machine business. Begin operating it to "
-    "maximize your net worth. Start by reviewing your status and the available products."
+    "You are now running the vending machine. Start by viewing the catalog and stocking "
+    "the machine, then operate it day by day to make as much money as possible."
 )
 
-# --- Per-agent "operating style" conditioning (the variable the STABILITY PROBE
-#     stresses). homogeneous = every agent gets the SAME style; diverse = each agent
-#     gets a DIFFERENT style. This is the ONLY difference between the two probe runs.
+# Per-agent operating-style conditioning (what the GA's genome renders into; also the
+# stability-probe variable). homogeneous = all agents share one style; diverse = each gets one.
 OPERATING_STYLES = [
     "Operating style: cautious — keep large stock buffers and never let cash run low.",
     "Operating style: aggressive margins — stock lean and price high.",
@@ -99,14 +96,11 @@ OPERATING_STYLES = [
     "Operating style: fast-movers only — focus on a few popular items.",
     "Operating style: wide variety — stock many different products.",
     "Operating style: lean cash — minimize inventory, keep liquidity high.",
-    "Operating style: stockpiler — order ahead in bulk to avoid stockouts.",
+    "Operating style: stockpiler — buy ahead in bulk to avoid stockouts.",
 ]
 
 
 def _conditioning_line(i: int, mode: str) -> str:
-    """Per-row operating-style suffix appended to USER_KICKOFF.
-    homogeneous -> all rows share OPERATING_STYLES[3] (balanced);
-    diverse     -> row i gets OPERATING_STYLES[i % len]."""
     style = OPERATING_STYLES[i % len(OPERATING_STYLES)] if mode == "diverse" else OPERATING_STYLES[3]
     return "\n\n" + style
 
@@ -133,17 +127,71 @@ def _coerce_float(value, name: str) -> float:
         raise ValueError(f"'{name}' must be a number, got {value!r}")
 
 
+def _replace_nonfinite(obj):
+    """Recursively replace non-finite floats (NaN/Infinity) with None.
+
+    Returns ``(new_obj, changed)`` where ``changed`` indicates whether any value was
+    rewritten.
+    """
+    if isinstance(obj, float):
+        return (None, True) if not math.isfinite(obj) else (obj, False)
+    if isinstance(obj, dict):
+        changed = False
+        out = {}
+        for k, v in obj.items():
+            out[k], c = _replace_nonfinite(v)
+            changed = changed or c
+        return out, changed
+    if isinstance(obj, list):
+        changed = False
+        out = []
+        for v in obj:
+            nv, c = _replace_nonfinite(v)
+            out.append(nv)
+            changed = changed or c
+        return out, changed
+    return obj, False
+
+
+def _sanitize_tool_call_args(messages) -> None:
+    """Strip non-finite floats from the latest assistant message's tool-call arguments.
+
+    A model can emit a non-finite number (e.g. ``NaN``/``Infinity``) as a tool argument
+    such as ``price``. Once that value is stored in the conversation, every subsequent
+    inference request serializes it and the inference server rejects the request with
+    "Out of range float values are not JSON compliant: nan" (HTTP 400), which kills the
+    whole rollout. We rewrite such values to ``null`` in place so the tool falls back to
+    its defaults / normal validation instead of poisoning the conversation.
+    """
+    if not messages:
+        return
+    last = messages[-1]
+    tool_calls = getattr(last, "tool_calls", None)
+    if not tool_calls:
+        return
+    for tc in tool_calls:
+        raw = getattr(tc, "arguments", None)
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        sanitized, changed = _replace_nonfinite(parsed)
+        if changed:
+            tc.arguments = json.dumps(sanitized)
+
+
 def _resolve_product(name: str) -> dict:
     if not isinstance(name, str):
         raise ValueError(f"product must be a name string, got {name!r}")
     if name in CATALOG_BY_NAME:
         return CATALOG_BY_NAME[name]
-    # case-insensitive fallback
     for p_name, p in CATALOG_BY_NAME.items():
         if p_name.lower() == name.strip().lower():
             return p
     raise ValueError(
-        f"Unknown product '{name}'. Use search_products to see valid product names."
+        f"Unknown product '{name}'. Use view_catalog to see valid product names."
     )
 
 
@@ -152,44 +200,24 @@ def _current_date(vb: dict) -> date:
 
 
 def _inventory_value(vb: dict) -> float:
-    """Wholesale value of all inventory the agent owns (storage + machine + in transit)."""
-    total = 0.0
-    for name, qty in vb["storage"].items():
-        total += qty * CATALOG_BY_NAME[name]["cost"]
-    for name, slot in vb["machine"].items():
-        total += slot["qty"] * CATALOG_BY_NAME[name]["cost"]
-    for order in vb["pending_orders"]:
-        total += order["qty"] * CATALOG_BY_NAME[order["name"]]["cost"]
-    return total
+    """Wholesale value of unsold stock currently in the machine."""
+    return sum(slot["qty"] * CATALOG_BY_NAME[name]["cost"] for name, slot in vb["machine"].items())
 
 
 def net_worth_of(vb: dict) -> float:
     return vb["balance"] + vb["machine_cash"] + _inventory_value(vb)
 
 
-def _machine_slot_counts(vb: dict) -> tuple[int, int]:
-    small = sum(1 for n in vb["machine"] if CATALOG_BY_NAME[n]["size"] == "small")
-    large = sum(1 for n in vb["machine"] if CATALOG_BY_NAME[n]["size"] == "large")
-    return small, large
-
-
 def _choice_multiplier(num_available: int) -> float:
-    """Reward variety, with diminishing returns and a penalty for too many options."""
-    mult = 1.0 + 0.05 * min(num_available, 5) - 0.06 * max(0, num_available - 9)
-    return max(0.5, min(mult, 1.25))
+    """Small reward for offering variety, with diminishing returns."""
+    return 1.0 + 0.05 * min(num_available, 5)
 
 
 def _run_daily_sales(vb: dict, day_date: date, rng: random.Random) -> dict:
     """Simulate one day of customer purchases. Mutates machine inventory & returns a summary."""
     weekday = day_date.weekday()  # Mon=0 .. Sun=6
-    if weekday >= 5:
-        dow_mult = 1.30
-    elif weekday == 4:
-        dow_mult = 1.15
-    else:
-        dow_mult = 1.0
-    month_mult = MONTHLY_MULT[day_date.month]
-    weather_mult = rng.uniform(0.8, 1.2)
+    dow_mult = 1.25 if weekday >= 5 else 1.0
+    weather_mult = rng.uniform(0.9, 1.1)
 
     available = [
         n for n, s in vb["machine"].items() if s["qty"] > 0 and s.get("price") is not None
@@ -203,19 +231,10 @@ def _run_daily_sales(vb: dict, day_date: date, rng: random.Random) -> dict:
         slot = vb["machine"][name]
         p = CATALOG_BY_NAME[name]
         price = slot["price"]
-        price_ratio = price / p["ref_price"]
+        price_ratio = price / p["price"]
         demand_mult = price_ratio ** p["elasticity"]
-        noise = rng.uniform(0.8, 1.2)
-        expected = (
-            p["base_sales"]
-            * demand_mult
-            * dow_mult
-            * month_mult
-            * weather_mult
-            * choice_mult
-            * noise
-            * vb.get("demand_scale", 1.0)
-        )
+        noise = rng.uniform(0.9, 1.1)
+        expected = p["base_sales"] * demand_mult * dow_mult * weather_mult * choice_mult * noise * vb.get("demand_scale", 1.0)
         units = max(0, min(int(round(expected)), slot["qty"]))
         if units == 0:
             continue
@@ -234,180 +253,120 @@ def _run_daily_sales(vb: dict, day_date: date, rng: random.Random) -> dict:
 
 
 # --------------------------------------------------------------------------------------
-# Tools (each takes a trailing ``state`` arg that is hidden from the model and injected
-# at call time by the environment).
+# Tools (each takes a ``state`` arg that is hidden from the model and injected at call
+# time by the environment). Simplified to 5 tools.
 # --------------------------------------------------------------------------------------
 
 def get_status(state: dict) -> str:
-    """Show the current day, date, cash balance, uncollected machine cash, daily fee, and net worth."""
+    """Show a full overview: day/date, cash balance, uncollected machine cash, net worth,
+    the daily fee, and the machine's current contents with quantities and prices."""
     vb = state["vb"]
     d = _current_date(vb)
     lines = [
         f"Day {vb['day']} of {vb['max_days']} — {d.isoformat()} ({d.strftime('%A')})",
         f"Cash balance: {_money(vb['balance'])}",
         f"Uncollected cash in machine: {_money(vb['machine_cash'])}",
-        f"Inventory value (wholesale): {_money(_inventory_value(vb))}",
+        f"Value of unsold stock: {_money(_inventory_value(vb))}",
         f"Net worth: {_money(net_worth_of(vb))}",
-        f"Daily operating fee: {_money(vb['daily_fee'])}",
+        f"Daily fee: {_money(vb['daily_fee'])}",
         f"Consecutive days unable to pay fee: {vb['unpaid_days']} "
         f"(bankruptcy at {vb['bankruptcy_days']})",
         f"Units sold so far: {vb['units_sold']}",
+        "",
+        f"Vending machine ({len(vb['machine'])}/{vb['max_slots']} product slots used):",
     ]
+    if not vb["machine"]:
+        lines.append("  (empty — use restock to add products)")
+    else:
+        for name, slot in vb["machine"].items():
+            price = _money(slot["price"]) if slot.get("price") is not None else "NO PRICE"
+            lines.append(f"  {name}: {slot['qty']} units @ {price}")
     return "\n".join(lines)
 
 
-def search_products(state: dict, query: str = "") -> str:
-    """Research products available from wholesalers. Optionally filter by a search query.
-
-    Returns each product's wholesale unit cost, size class (small/large), and a
-    reference retail price around which typical demand occurs.
-    """
-    q = (query or "").strip().lower()
-    rows = []
-    for p in CATALOG:
-        if q and q not in p["name"].lower() and q not in p["size"].lower():
-            continue
-        rows.append(
-            f"- {p['name']} [{p['size']}]: wholesale {_money(p['cost'])}/unit, "
-            f"typical retail ~{_money(p['ref_price'])}"
-        )
-    if not rows:
-        return f"No products matched '{query}'. Try a broader query or leave it blank."
-    header = "Available wholesale products (use the exact name with order_product):"
+def view_catalog(state: dict) -> str:
+    """List the products you can buy, with wholesale unit cost and a suggested retail price."""
+    rows = [
+        f"- {p['name']}: cost {_money(p['cost'])}/unit, suggested price {_money(p['price'])}"
+        for p in CATALOG
+    ]
+    header = "Products you can buy (use the exact name with restock):"
     return header + "\n" + "\n".join(rows)
 
 
-def order_product(product: str, quantity: int, state: dict) -> str:
-    """Order `quantity` units of `product` from a wholesaler.
+def restock(product: str, quantity: int, state: dict, price: float | None = None) -> str:
+    """Buy `quantity` units of `product` directly into the vending machine.
 
-    The cost is charged to your cash balance immediately. The products are shipped and
-    arrive in your storage room after the delivery delay; a morning report will confirm
-    the delivery. You must have enough cash to cover the order.
-    """
-    vb = state["vb"]
-    p = _resolve_product(product)
-    qty = _coerce_int(quantity, "quantity")
-    if qty <= 0:
-        raise ValueError("quantity must be a positive integer")
-    cost = qty * p["cost"]
-    if cost > vb["balance"] + 1e-9:
-        return (
-            f"Order rejected: ordering {qty}x {p['name']} costs {_money(cost)} but your "
-            f"balance is only {_money(vb['balance'])}."
-        )
-    vb["balance"] -= cost
-    arrival = vb["day"] + vb["delivery_days"]
-    vb["pending_orders"].append({"name": p["name"], "qty": qty, "arrival_day": arrival})
-    return (
-        f"Ordered {qty}x {p['name']} for {_money(cost)} ({_money(p['cost'])}/unit). "
-        f"Expected delivery to storage on day {arrival} "
-        f"(in {vb['delivery_days']} days). New balance: {_money(vb['balance'])}."
-    )
-
-
-def get_storage_inventory(state: dict) -> str:
-    """List the products and quantities currently in your storage room, plus pending deliveries."""
-    vb = state["vb"]
-    lines = ["Storage inventory:"]
-    if not vb["storage"] or all(q == 0 for q in vb["storage"].values()):
-        lines.append("  (empty)")
-    else:
-        for name, qty in vb["storage"].items():
-            if qty > 0:
-                lines.append(f"  {name} [{CATALOG_BY_NAME[name]['size']}]: {qty} units")
-    if vb["pending_orders"]:
-        lines.append("Pending deliveries:")
-        for o in sorted(vb["pending_orders"], key=lambda x: x["arrival_day"]):
-            lines.append(
-                f"  {o['qty']}x {o['name']} — arriving day {o['arrival_day']}"
-            )
-    return "\n".join(lines)
-
-
-def get_machine_inventory(state: dict) -> str:
-    """Show what is currently loaded in the vending machine: products, quantities, and prices."""
-    vb = state["vb"]
-    small_cap, large_cap = vb["max_small_slots"], vb["max_large_slots"]
-    small_used, large_used = _machine_slot_counts(vb)
-    lines = [
-        f"Vending machine (small slots {small_used}/{small_cap}, "
-        f"large slots {large_used}/{large_cap}):",
-    ]
-    if not vb["machine"]:
-        lines.append("  (empty)")
-    else:
-        for name, slot in vb["machine"].items():
-            price = _money(slot["price"]) if slot.get("price") is not None else "NO PRICE SET"
-            lines.append(
-                f"  {name} [{CATALOG_BY_NAME[name]['size']}]: {slot['qty']} units @ {price}"
-            )
-    return "\n".join(lines)
-
-
-def stock_machine(product: str, quantity: int, state: dict) -> str:
-    """Move `quantity` units of `product` from your storage room into the vending machine.
-
-    The product must already be in storage. Small products use small slots and large
-    products use large slots; each occupied slot holds up to a fixed per-slot capacity.
+    You pay the wholesale cost immediately from your cash balance. Optionally set `price`
+    (the selling price); if you omit it, the product's profitable suggested price is used.
+    Each product occupies one slot in the machine, up to a per-product capacity. To only
+    change the price of a product already in the machine, pass quantity 0 with a price.
     """
     vb = state["vb"]
     p = _resolve_product(product)
     name = p["name"]
     qty = _coerce_int(quantity, "quantity")
-    if qty <= 0:
-        raise ValueError("quantity must be a positive integer")
-    in_storage = vb["storage"].get(name, 0)
-    if in_storage <= 0:
-        return f"Cannot stock {name}: none in storage. Order it first and wait for delivery."
-    move = min(qty, in_storage)
+    if qty < 0:
+        raise ValueError("quantity must be zero or a positive integer")
 
-    size = p["size"]
-    per_slot = vb["small_slot_capacity"] if size == "small" else vb["large_slot_capacity"]
-    max_slots = vb["max_small_slots"] if size == "small" else vb["max_large_slots"]
-    small_used, large_used = _machine_slot_counts(vb)
-    used = small_used if size == "small" else large_used
+    # Determine the price to set (explicit, existing, or suggested default).
+    if price is not None:
+        price_val = _coerce_float(price, "price")
+        if price_val <= 0:
+            raise ValueError("price must be a positive number")
+    elif name in vb["machine"] and vb["machine"][name].get("price") is not None:
+        price_val = vb["machine"][name]["price"]
+    else:
+        price_val = p["price"]
 
-    if name not in vb["machine"]:
-        if used >= max_slots:
+    # Pure reprice path.
+    if qty == 0:
+        if name not in vb["machine"]:
             return (
-                f"Cannot stock {name}: all {max_slots} {size} slots are occupied. "
-                f"Sell down or remove an existing {size} product first."
+                f"Cannot set price: {name} is not in the machine. Restock it with a "
+                f"positive quantity first."
             )
-        vb["machine"][name] = {"qty": 0, "price": None}
+        vb["machine"][name]["price"] = price_val
+        return f"Set price of {name} to {_money(price_val)} (cost {_money(p['cost'])})."
 
-    slot = vb["machine"][name]
-    capacity_left = per_slot - slot["qty"]
-    if capacity_left <= 0:
+    if name not in vb["machine"] and len(vb["machine"]) >= vb["max_slots"]:
         return (
-            f"Cannot stock {name}: its slot is already full "
-            f"({slot['qty']}/{per_slot} units)."
+            f"Cannot add {name}: all {vb['max_slots']} product slots are in use. "
+            f"Let an existing product sell out first."
         )
-    move = min(move, capacity_left)
-    slot["qty"] += move
-    vb["storage"][name] -= move
-    price_note = (
-        f" Current price: {_money(slot['price'])}."
-        if slot.get("price") is not None
-        else " No price set yet — use set_price so it can sell."
-    )
-    return (
-        f"Stocked {move}x {name} into the machine (now {slot['qty']}/{per_slot} units)."
-        f"{price_note} Remaining in storage: {vb['storage'][name]}."
-    )
 
+    cap = vb["slot_capacity"]
+    current_qty = vb["machine"].get(name, {}).get("qty", 0)
+    capacity_left = cap - current_qty
+    if capacity_left <= 0:
+        if name in vb["machine"]:
+            vb["machine"][name]["price"] = price_val
+        return (
+            f"{name}'s slot is already full ({current_qty}/{cap} units). "
+            f"Price set to {_money(price_val)}."
+        )
+    buy = min(qty, capacity_left)
+    cost = buy * p["cost"]
+    if cost > vb["balance"] + 1e-9:
+        affordable = int(vb["balance"] / p["cost"])
+        return (
+            f"Not enough cash: {buy}x {name} costs {_money(cost)} but you have "
+            f"{_money(vb['balance'])}. You can afford about {affordable} units."
+        )
 
-def set_price(product: str, price: float, state: dict) -> str:
-    """Set the selling price (in dollars) for a product that is loaded in the vending machine."""
-    vb = state["vb"]
-    p = _resolve_product(product)
-    name = p["name"]
-    price_val = _coerce_float(price, "price")
-    if price_val <= 0:
-        raise ValueError("price must be a positive number")
+    vb["balance"] -= cost
     if name not in vb["machine"]:
-        return f"Cannot set price: {name} is not loaded in the machine. Stock it first."
-    vb["machine"][name]["price"] = price_val
-    return f"Set price of {name} to {_money(price_val)} (wholesale cost {_money(p['cost'])})."
+        vb["machine"][name] = {"qty": 0, "price": price_val}
+    slot = vb["machine"][name]
+    slot["qty"] += buy
+    slot["price"] = price_val
+    note = ""
+    if buy < qty:
+        note = f" (slot capped at {cap}, so only {buy} added)"
+    return (
+        f"Stocked {buy}x {name} for {_money(cost)} @ {_money(price_val)} each{note}. "
+        f"Now {slot['qty']}/{cap} units. New balance: {_money(vb['balance'])}."
+    )
 
 
 def collect_cash(state: dict) -> str:
@@ -422,66 +381,12 @@ def collect_cash(state: dict) -> str:
     )
 
 
-def read_emails(state: dict) -> str:
-    """Read your email inbox (e.g. replies from wholesalers)."""
-    vb = state["vb"]
-    if not vb["inbox"]:
-        return "Your inbox is empty."
-    lines = ["Inbox:"]
-    for i, m in enumerate(vb["inbox"], 1):
-        lines.append(
-            f"[{i}] (day {m['day']}) From: {m['from']} | Subject: {m['subject']}\n"
-            f"    {m['body']}"
-        )
-    return "\n".join(lines)
-
-
-def send_email(recipient: str, subject: str, body: str, state: dict) -> str:
-    """Send an email (e.g. to a wholesaler to ask about products). A reply, if any, arrives the next day."""
-    vb = state["vb"]
-    text = f"{subject} {body}".lower()
-    if any(k in text for k in ("catalog", "price", "product", "quote", "stock", "order", "buy")):
-        reply_body = (
-            "Thanks for reaching out! You can order any of our catalog items directly. "
-            "Use the order_product tool with the product name and quantity; deliveries "
-            "arrive within a few days."
-        )
-    else:
-        reply_body = "Thank you for your email. We'll get back to you shortly."
-    vb["pending_emails"].append(
-        {
-            "day": vb["day"] + 1,
-            "from": recipient or "wholesaler@example.com",
-            "subject": f"Re: {subject}",
-            "body": reply_body,
-        }
-    )
-    return f"Email sent to {recipient or 'wholesaler@example.com'}. Expect a reply tomorrow."
-
-
-def write_scratchpad(content: str, state: dict) -> str:
-    """Append a note to your private scratchpad to help you remember things across days."""
-    vb = state["vb"]
-    vb["scratchpad"].append({"day": vb["day"], "content": content})
-    return f"Note saved (you now have {len(vb['scratchpad'])} note(s))."
-
-
-def read_scratchpad(state: dict) -> str:
-    """Read all notes you have written to your scratchpad."""
-    vb = state["vb"]
-    if not vb["scratchpad"]:
-        return "Your scratchpad is empty."
-    return "Scratchpad notes:\n" + "\n".join(
-        f"- (day {n['day']}) {n['content']}" for n in vb["scratchpad"]
-    )
-
-
 def wait_for_next_day(state: dict) -> str:
-    """Let time advance to the next day. Runs the day's sales, charges the daily fee,
-    processes any deliveries that arrive, delivers new emails, and returns a morning report."""
+    """Let time advance to the next day. Runs the day's sales, charges the daily fee, and
+    returns a morning report with the previous day's results and your balances."""
     vb = state["vb"]
     if vb["game_over"]:
-        return f"The simulation has ended ({vb['game_over_reason']})."
+        return f"The game has ended ({vb['game_over_reason']})."
 
     day_left = vb["day"]
     day_date = _current_date(vb)
@@ -500,22 +405,13 @@ def wait_for_next_day(state: dict) -> str:
         vb["unpaid_days"] += 1
         fee_note = (
             f"COULD NOT PAY the daily fee of {_money(fee)} "
-            f"({vb['unpaid_days']}/{vb['bankruptcy_days']} consecutive days)."
+            f"({vb['unpaid_days']}/{vb['bankruptcy_days']} consecutive days). "
+            f"Tip: collect_cash to top up your balance."
         )
 
     vb["day"] += 1
     new_date = _current_date(vb)
 
-    delivered = [o for o in vb["pending_orders"] if o["arrival_day"] == vb["day"]]
-    vb["pending_orders"] = [o for o in vb["pending_orders"] if o["arrival_day"] != vb["day"]]
-    for o in delivered:
-        vb["storage"][o["name"]] = vb["storage"].get(o["name"], 0) + o["qty"]
-
-    new_emails = [m for m in vb["pending_emails"] if m["day"] == vb["day"]]
-    vb["pending_emails"] = [m for m in vb["pending_emails"] if m["day"] != vb["day"]]
-    vb["inbox"].extend(new_emails)
-
-    # Build the morning report.
     lines = [
         f"Good morning! It is now day {vb['day']} — {new_date.isoformat()} "
         f"({new_date.strftime('%A')}).",
@@ -530,21 +426,11 @@ def wait_for_next_day(state: dict) -> str:
                 f"  - {name}: sold {info['units']} @ {_money(info['price'])} "
                 f"= {_money(info['revenue'])}"
             )
-        lines.append(
-            f"  Total: {sales['units']} units, revenue {_money(sales['revenue'])}."
-        )
+        lines.append(f"  Total: {sales['units']} units, revenue {_money(sales['revenue'])}.")
     else:
-        lines.append("  No sales. (Is the machine stocked and priced?)")
+        lines.append("  No sales. (Is the machine stocked? Each item needs units and a price.)")
     lines.append(fee_note)
 
-    if delivered:
-        lines.append("Deliveries that arrived in storage:")
-        for o in delivered:
-            lines.append(f"  - {o['qty']}x {o['name']}")
-    if new_emails:
-        lines.append(f"You have {len(new_emails)} new email(s). Use read_emails to view.")
-
-    # Resolve end conditions.
     if vb["unpaid_days"] >= vb["bankruptcy_days"]:
         vb["game_over"] = True
         vb["game_over_reason"] = "bankruptcy"
@@ -559,23 +445,15 @@ def wait_for_next_day(state: dict) -> str:
     )
     if vb["game_over"]:
         lines.append("")
-        lines.append(f"*** The simulation has ended: {vb['game_over_reason']}. ***")
+        lines.append(f"*** The game has ended: {vb['game_over_reason']}. ***")
     return "\n".join(lines)
 
 
 ALL_TOOLS = [
     get_status,
-    search_products,
-    order_product,
-    get_storage_inventory,
-    get_machine_inventory,
-    stock_machine,
-    set_price,
+    view_catalog,
+    restock,
     collect_cash,
-    read_emails,
-    send_email,
-    write_scratchpad,
-    read_scratchpad,
     wait_for_next_day,
 ]
 
@@ -584,7 +462,7 @@ ALL_TOOLS = [
 # Environment
 # --------------------------------------------------------------------------------------
 
-class VendingBenchEnv(vf.StatefulToolEnv):
+class VendingBenchSimpleEnv(vf.StatefulToolEnv):
     def __init__(self, config: dict, **kwargs):
         self.config = config
         super().__init__(tools=[], max_turns=config["max_turns"], **kwargs)
@@ -604,19 +482,11 @@ class VendingBenchEnv(vf.StatefulToolEnv):
             "balance": float(cfg["initial_balance"]),
             "machine_cash": 0.0,
             "daily_fee": float(cfg["daily_fee"]),
-            "delivery_days": cfg["delivery_days"],
             "max_days": cfg["max_days"],
             "bankruptcy_days": cfg["bankruptcy_days"],
-            "small_slot_capacity": cfg["small_slot_capacity"],
-            "large_slot_capacity": cfg["large_slot_capacity"],
-            "max_small_slots": cfg["max_small_slots"],
-            "max_large_slots": cfg["max_large_slots"],
-            "storage": {},
+            "slot_capacity": cfg["slot_capacity"],
+            "max_slots": cfg["max_slots"],
             "machine": {},
-            "pending_orders": [],
-            "pending_emails": [],
-            "inbox": [],
-            "scratchpad": [],
             "units_sold": 0,
             "unpaid_days": 0,
             "game_over": False,
@@ -642,12 +512,14 @@ class VendingBenchEnv(vf.StatefulToolEnv):
     async def env_response(
         self, messages: vf.Messages, state: vf.State, **kwargs
     ) -> vf.Messages:
+        # Defensively strip non-finite floats the model may have emitted as tool args;
+        # otherwise they poison the conversation and break every later request.
+        _sanitize_tool_call_args(messages)
         # If the model replied without calling a tool, nudge it to keep going rather than
-        # ending the rollout (mirrors the original benchmark's behavior).
+        # ending the rollout.
         last = messages[-1]
-        # METABOLIC COMPUTE COST: each agent turn (LLM call = "thinking") drains the survival
-        # balance. Compute is a real cost in the world, not a score penalty -> over-thinking
-        # causes earlier bankruptcy; it never trains "think less for points".
+        # METABOLIC COMPUTE COST: each agent turn drains the survival balance (a world cost,
+        # not a score penalty) -> over-thinking causes earlier bankruptcy; never trains "think less".
         vb = state.get("vb")
         if vb is not None and last.role == "assistant":
             cc = vb.get("compute_cost", 0.0)
@@ -660,7 +532,7 @@ class VendingBenchEnv(vf.StatefulToolEnv):
             return [
                 {
                     "role": "user",
-                    "content": "Continue operating the business by using your tools.",
+                    "content": "Continue running the vending machine by using your tools.",
                 }
             ]
         return await super().env_response(messages, state, **kwargs)
@@ -712,10 +584,9 @@ BANKRUPT_PENALTY = 500.0  # hard penalty for going bankrupt (death)
 
 
 async def survival_reward(state: vf.State) -> float:
-    """Death-truncated survival return: reward each day the business stays solvent; add a
-    net-worth bonus only if it survives; penalize bankruptcy. The metabolic compute cost is
-    already drained from the balance in the world (env_response), so there is NO flat per-turn
-    penalty here -> the agent optimizes for LIVING LONGER, never for thinking less."""
+    """Death-truncated survival return: reward each day solvent; net-worth bonus only if it
+    survives; penalize bankruptcy. Compute cost is drained from the balance in the world
+    (env_response), so there is NO flat per-turn penalty -> optimize for LIVING LONGER."""
     vb = state.get("vb")
     if not vb:
         return 0.0
@@ -738,16 +609,13 @@ async def compute_spent(state: vf.State) -> float:
 
 def load_environment(
     num_examples: int = 5,
-    max_turns: int = 150,
+    max_turns: int = 100,
     initial_balance: float = 500.0,
-    daily_fee: float = 2.0,
-    delivery_days: int = 3,
-    max_days: int = 365,
+    daily_fee: float = 1.0,
+    max_days: int = 30,
     bankruptcy_days: int = 10,
-    small_slot_capacity: int = 15,
-    large_slot_capacity: int = 10,
-    max_small_slots: int = 6,
-    max_large_slots: int = 6,
+    slot_capacity: int = 20,
+    max_slots: int = 5,
     seed: int = 0,
     conditioning_mode: str = "homogeneous",
     demand_scale: float = 1.0,
@@ -756,31 +624,27 @@ def load_environment(
     family: int = -1,
     **kwargs,
 ) -> vf.Environment:
-    """Load the Vending-Bench environment.
+    """Load the simplified (easy) Vending-Bench environment.
 
     Args:
         num_examples: number of distinct seeded scenarios in the dataset.
         max_turns: max agent turns (message budget) per rollout.
         initial_balance: starting cash balance.
         daily_fee: fee charged each simulated day.
-        delivery_days: days between ordering and delivery to storage.
         max_days: hard cap on simulated days per rollout.
         bankruptcy_days: consecutive days unable to pay the fee before termination.
-        small_slot_capacity / large_slot_capacity: per-slot unit capacity in the machine.
-        max_small_slots / max_large_slots: number of small/large slots in the machine.
+        slot_capacity: per-product unit capacity in the machine.
+        max_slots: number of distinct products the machine can hold.
         seed: base RNG seed (example i uses seed + i).
     """
     config = {
         "max_turns": max_turns,
         "initial_balance": initial_balance,
         "daily_fee": daily_fee,
-        "delivery_days": delivery_days,
         "max_days": max_days,
         "bankruptcy_days": bankruptcy_days,
-        "small_slot_capacity": small_slot_capacity,
-        "large_slot_capacity": large_slot_capacity,
-        "max_small_slots": max_small_slots,
-        "max_large_slots": max_large_slots,
+        "slot_capacity": slot_capacity,
+        "max_slots": max_slots,
         "seed": seed,
         "start_date": "2025-01-01",
         "demand_scale": demand_scale,
@@ -817,13 +681,14 @@ def load_environment(
         weights=[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     )
 
-    return VendingBenchEnv(
+    return VendingBenchSimpleEnv(
         config=config,
         dataset=dataset,
         system_prompt=SYSTEM_PROMPT,
         rubric=rubric,
         **kwargs,
     )
+
 
 
 # =============================================================================
