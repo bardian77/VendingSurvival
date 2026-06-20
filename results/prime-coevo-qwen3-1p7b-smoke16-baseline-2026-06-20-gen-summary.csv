@@ -1,0 +1,11 @@
+run_tag,gen,evolved_n,evolved_mean_reward,evolved_max_reward,evolved_bankrupt_n,baseline_n,baseline_mean_reward,baseline_max_reward,baseline_bankrupt_n
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,0,65,195.891154,235.2,0,4,194.38125,200.25,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,1,68,194.443235,227.475,0,2,191.125,196.0,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,2,67,194.866418,224.0,0,7,193.667857,198.25,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,3,94,196.311436,247.85,0,7,195.332143,200.0,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,4,78,195.711346,247.65,0,4,193.35625,196.25,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,5,72,195.428611,226.375,0,4,203.3375,219.85,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,6,97,196.683969,242.15,0,6,196.158333,203.75,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,7,71,195.240845,229.15,0,4,195.0625,200.125,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,8,70,195.832714,227.0,0,6,193.770833,198.725,0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,9,32,200.647656,265.175,0,1,195.375,195.375,0

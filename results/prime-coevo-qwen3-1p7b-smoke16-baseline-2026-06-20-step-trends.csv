@@ -1,0 +1,21 @@
+run_tag,step,wall_time,reward,trainable_n,batch_n,turns,truncation_pct
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,0,59.2s,197.3596,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,1,48.3s,193.6074,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,2,56.1s,194.7563,30,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,3,57.7s,193.7654,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,4,49.9s,195.3382,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,5,1m 3s,193.9831,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,6,48.3s,195.1103,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,7,53.2s,196.6919,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,8,58.1s,197.1826,32,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,9,49.3s,195.7397,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,10,52.6s,195.1441,32,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,11,48.3s,195.1963,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,12,58.3s,195.5804,30,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,13,52.6s,197.8081,30,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,14,51.6s,196.2044,30,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,15,55.7s,195.3271,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,16,51.4s,194.311,28,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,17,55.0s,196.1868,34,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,18,58.5s,194.6419,26,34,16.0,100.0
+prime-coevo-qwen3-1p7b-smoke16-baseline-2026-06-20,19,50.2s,195.7218,34,34,16.0,100.0
