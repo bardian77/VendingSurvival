@@ -1,15 +1,15 @@
-# In-run genome co-evolution for prime-rl with F=4 rollouts per slot.
+# In-run genome co-evolution for prime-rl with group_size=4 rollouts per slot.
 # Separate from `vend_coevo.toml`; intended for a later run, not the active one.
 #
 # Run the GA controller as a sidecar in the SAME session, with matching min samples:
-#   COEVO_DIR=/root/coevo_f4 COEVO_POP=16 COEVO_MIN_SAMPLES=4 python coevo.py &
-#   WANDB_MODE=disabled uv run rl @ vend_coevo_f4.toml
+#   COEVO_DIR=/root/coevo_group4 COEVO_POP=16 COEVO_MIN_SAMPLES=4 python coevo.py &
+#   WANDB_MODE=disabled uv run rl @ vend_coevo_group4.toml
 #
 # batch_size/group_size = 68/4 = (16 evolved slots + 1 baseline slot) x 4 rollouts.
 # Hard econ matches the demand0.15 bankruptcy-pressure setting.
 max_steps = 20
 seq_len = 16384
-output_dir = "outputs_f4"
+output_dir = "outputs_group4"
 [ckpt]
 [model]
 name = "Qwen/Qwen3-1.7B"
@@ -29,5 +29,5 @@ group_size = 4
 max_completion_tokens = 384
 [[orchestrator.train.env]]
 id = "vending-survival"
-args = { coevo_dir = "/root/coevo_f4", pop_size = 16, include_baseline = true, max_turns = 40, initial_balance = 60, daily_fee = 12, demand_scale = 0.15, compute_cost = 0.3, bankruptcy_days = 3, max_days = 30 }
+args = { coevo_dir = "/root/coevo_group4", pop_size = 16, include_baseline = true, max_turns = 40, initial_balance = 60, daily_fee = 12, demand_scale = 0.15, compute_cost = 0.3, bankruptcy_days = 3, max_days = 30 }
 [inference]
