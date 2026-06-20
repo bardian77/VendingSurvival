@@ -1,0 +1,78 @@
+# VendingSurvival — results registry.
+# IMPORTANT: comparisons are valid ONLY within the same reward_version AND horizon.
+
+reward_versions:
+  old: "50*days_survived + 0.5*net_worth (days-weighted; no bankruptcy penalty)"
+  new: "-500 if bankrupt else 200 + 0.5*(net_worth - initial_balance)  # profit under a survival GATE; no days term (was turn-confounded); no net-worth credit when bankrupt"
+
+prompt_versions:
+  old: "objective='maximize net worth'; says 'suggested prices are good'; compute cost NOT disclosed"
+  corrected: "objective=survival-first + bankruptcy penalty; every action costs money (disclosed); reference price is only a starting point (de-biased)"
+
+envs:
+  personal: "chenyusu/vending-survival  (personal namespace; up to v0.1.5)"
+  team: "cheney/vending-survival  (team AgentEcon; current, v0.1.8)"
+
+econ_default: { initial_balance: 200, daily_fee: 5, demand_scale: 1.0, compute_cost: 0.5, bankruptcy_days: 3, max_days: 30 }
+
+runs:
+  - id: rlrkuca6y5eri3eojtkjnlf3
+    role: 4B RL baseline (single policy, no GA)
+    model: Qwen/Qwen3.5-4B
+    env: chenyusu/vending-survival
+    reward_version: old
+    prompt_version: old
+    horizon_turns: 40
+    train: { batch_size: 16, rollouts_per_example: 4, max_steps: 8 }
+    final: { survival_reward: 1142.9, days_survived: 13.9, net_worth: 898, units_sold: 750, bankrupt: 0.0 }
+    cost_usd: 6.19
+    csv: results_4b_baseline.csv
+
+  - id: tfpl1zrcb6zxg5g8qzywxdc1
+    role: 2B RL baseline (single policy, no GA)
+    model: Qwen/Qwen3.5-2B
+    env: cheney/vending-survival
+    reward_version: new
+    prompt_version: corrected
+    horizon_turns: 40
+    train: { batch_size: 16, rollouts_per_example: 4, max_steps: 8 }
+    final: { survival_reward: 298.5, days_survived: 10.9, net_worth: 397, units_sold: 244, bankrupt: 0.0 }
+    note: "noisy/flat across 8 steps (~295-363); 2B too weak to clearly improve via RL"
+    cost_usd: 2.40
+    csv: results_2b_baseline.csv
+
+  - id: [ncdkovbzgerezh27wvviairu, h0vlu856bxoo5s0ny67h7mi6, lcc4byglxcwb8w472mvmyyod, ut2ibmfalyfimk86tbrrz3ax]
+    role: 16-genome config GA (instinct evolution, evaluated on BASE 2B)
+    model: Qwen/Qwen3.5-2B (base; max_steps=1 -> step-0 rollouts only)
+    env: cheney/vending-survival
+    reward_version: new
+    prompt_version: corrected
+    horizon_turns: 30
+    train: { batch_size: 64, rollouts_per_example: 4, max_steps: 1, generations_real: 3 }
+    result: { mean_fitness_by_gen: [285.0, 294.4, 303.6], best_genome_gen2: [0.256, 0.83, 0.919] }
+    note: "mean +6.6% over 3 gens (config is a weak lever); best is noisy (re-measured each gen); gen3 fitness extraction failed (0/16) -> premature early-stop"
+    cost_usd: 4.68
+    csv: results_ga.csv
+
+  - id: oracle
+    role: full-info Bayesian-optimal CEILING
+    model: scripted (oracle.py) — given the demand model
+    reward_version: old   # TODO: re-score on new reward for a comparable ceiling
+    horizon_turns: 40
+    result: { survival_reward: 1284.5, days_survived: 13.4, net_worth: 1231, units_sold: 172 }
+
+  - id: oracle_blind
+    role: info-matched CEILING (must LEARN demand: 2-price probe -> exploit)
+    model: scripted (oracle_blind.py)
+    reward_version: old   # TODO: re-score on new reward
+    horizon_turns: 40
+    result: { survival_reward: 996.3, days_survived: 10.4 }
+
+comparable_sets:
+  old_reward_40turn: [rlrkuca6 (4B=1142.9), oracle (1284.5 ceiling), oracle_blind (996.3)]   # 4B = 89% of full-info; LLM beats blind oracle
+  new_reward: [tfpl1 (2B baseline), GA]   # NO comparable ceiling yet on the new reward
+
+todo:
+  - "Re-score oracle.py + oracle_blind.py on the NEW reward (free, scripted) to get a comparable ceiling for the 2B baseline + GA."
+  - "Optional: a 4B baseline on the new reward + corrected prompt for a clean cross-model + prompt comparison."
+  - "v061ou1rc4znlnl3c3wqg8bu (2B, chenyusu, OLD reward + OLD prompt) is NOT a clean prompt A/B vs tfpl1 — reward differs too."
