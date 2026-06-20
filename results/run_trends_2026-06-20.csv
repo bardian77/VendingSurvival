@@ -1,0 +1,29 @@
+run_id,label,step,survival_reward,bankrupt_rate,net_worth,units_sold,days_survived
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",0,235.1,0.125,343.1,426.9,18.8
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",1,311.9,0.0625,405.1,467.6,19.1
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",2,233.9,0.125,343.5,393.5,17.8
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",3,355.4,0.0,410.8,446.0,15.6
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",4,283.1,0.0625,347.9,427.8,20.8
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",5,216.1,0.0625,213.6,260.5,16.2
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",6,191.3,0.125,245.4,335.1,18.8
+wbsg3iyaxfimnvk45k12ean1,"2B_validation (demand1.0, no-headroom)",7,238.6,0.0625,259.4,308.6,16.2
+t4qhvferpddfg4fuesqf5463,2B_genome-GA run,0,287.0,0.03125,427.4,267.8,9.3
+t4qhvferpddfg4fuesqf5463,2B_genome-GA run,1,285.0,0.03125,421.0,267.8,10.0
+t4qhvferpddfg4fuesqf5463,2B_genome-GA run,2,267.6,0.03125,387.4,239.0,10.9
+t4qhvferpddfg4fuesqf5463,2B_genome-GA run,3,300.7,0.0,401.4,271.8,9.0
+yf7t4f8x6fzjxj6oxq5h7fn1,2B_genome-GA run,0,275.5,0.03125,403.1,253.2,10.8
+yf7t4f8x6fzjxj6oxq5h7fn1,2B_genome-GA run,1,310.7,0.0,421.4,273.8,11.1
+yf7t4f8x6fzjxj6oxq5h7fn1,2B_genome-GA run,2,280.7,0.0,361.4,218.6,12.0
+yf7t4f8x6fzjxj6oxq5h7fn1,2B_genome-GA run,3,270.4,0.0,340.9,201.2,12.1
+vn0pqxefdq3ep3a8krcaa8lm,2B_genome-GA run,0,273.7,0.03125,399.5,248.6,10.4
+vn0pqxefdq3ep3a8krcaa8lm,2B_genome-GA run,1,304.5,0.0,409.1,268.1,10.8
+vn0pqxefdq3ep3a8krcaa8lm,2B_genome-GA run,2,249.9,0.03125,349.3,202.0,10.8
+vn0pqxefdq3ep3a8krcaa8lm,2B_genome-GA run,3,274.5,0.0,349.0,208.8,11.8
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),0,15.8,0.25,31.3,65.7,11.8
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),1,-28.6,0.3125,28.2,52.2,9.8
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),2,17.7,0.25,35.8,73.2,11.3
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),3,-199.4,0.5625,38.9,58.2,10.8
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),4,-67.7,0.375,42.0,67.8,10.4
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),5,-62.4,0.375,58.9,71.4,9.6
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),6,25.3,0.25,64.1,77.1,10.8
+df36dovf1f9wdi95fkptl39a,2B_headroom (demand0.15),7,-106.5,0.4375,67.6,58.8,7.8
