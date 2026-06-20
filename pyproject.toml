@@ -1,10 +1,6 @@
 [project]
 name = "vending-survival"
-version = "0.1.0"
-description = "A study: do vending agents learn to spend compute wisely to stay solvent? (Baldwin effect)"
+version = "0.2.0"
+description = "Vending-machine survival RL environment + GA over agent configs (compute-as-cost; Baldwin effect)."
 requires-python = ">=3.11"
-dependencies = ["numpy"]
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["tests"]
+dependencies = ["verifiers", "datasets", "numpy"]
